@@ -863,13 +863,15 @@
 								>{statusLabel(court.status)}</span
 							>
 						</div>
-						{#if courtOccupants[court.id] && courtOccupants[court.id].length}
-							<div class="players-list">
+						<div class="occupants">
+							{#if courtOccupants[court.id] && courtOccupants[court.id].length}
 								{#each courtOccupants[court.id] as pid}
-									<span class="player-name">{name(pid)}</span>
+									<button type="button" class="pick-chip">
+										{name(pid)}
+									</button>
 								{/each}
-							</div>
-						{/if}
+							{/if}
+						</div>
 					</div>
 				{/each}
 				{#if courts.length === 0}
@@ -1057,12 +1059,17 @@
 								Match - {i + 1}
 								{#if $matchTeams[m.id]}
 									<span class="muted small">
-										— {name($matchTeams[m.id].a[0])} &amp; {name(
+										(
+										{name($matchTeams[m.id].a[0])} &amp; {name(
 											$matchTeams[m.id].a[1],
 										)}
-										vs {name($matchTeams[m.id].b[0])} &amp; {name(
+									</span>
+									vs
+									<span class="muted small">
+										{name($matchTeams[m.id].b[0])} &amp; {name(
 											$matchTeams[m.id].b[1],
 										)}
+										)
 									</span>
 								{/if}
 							</span>
@@ -1786,6 +1793,13 @@
 
 	.court-card .occupants {
 		margin-top: 6px;
+	}
+
+	.occupants {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		grid-template-rows: repeat(2, 1fr);
+		gap: 0.1rem;
 	}
 
 	.add-court {
