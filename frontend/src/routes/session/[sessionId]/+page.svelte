@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { afterNavigate } from '$app/navigation';
 	import { api, ApiError } from '$lib/api';
 	import { identity } from '$lib/stores/identity';
 	import { toast } from '$lib/stores/toast';
@@ -105,11 +106,10 @@
 		}
 	}
 
-	// No background polling: fetched once on load and after every action
-	// that changes something (this device's own actions already refresh
-	// immediately — see startSession/generateAuto/etc below). To see a
-	// change made from another device (another player joining, host acting
-	// elsewhere), pull down from the top of the page, Instagram-style.
+	// No background polling: fetched once on load, after every action
+	// that changes something, when this page regains visibility (tab/app
+	// returns to foreground), and when returning to this route via navigation.
+	// To manually refresh, pull down from the top of the page.
 	async function poll() {
 		if (!token) return;
 		try {
@@ -138,6 +138,20 @@
 	$effect(() => {
 		const timer = setInterval(() => (tick += 1), 1000);
 		return () => clearInterval(timer);
+	});
+
+	$effect(() => {
+		function onVisibilityChange() {
+			if (!document.hidden && token) {
+				void poll();
+			}
+		}
+		document.addEventListener('visibilitychange', onVisibilityChange);
+		return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+	});
+
+	afterNavigate(() => {
+		if (token) void poll();
 	});
 
 	// ---- host: session lifecycle ----
@@ -686,19 +700,25 @@
 				{/if}
 			</div>
 			<div class="stack">
-				{#each matchesOpen ? matches : latestMatches as m (m.id)}
+				{#each matchesOpen ? matches : latestMatches as m, i (m.id)}
 					<a href="/match/{m.id}?session={sessionId}" class="card card-tight match-row row spread">
 						<span>
-							Match
+							Match - {i + 1}
 							{#if $matchTeams[m.id]}
-								<span class="muted small"> — {name($matchTeams[m.id].a[0])} &amp; {name($matchTeams[m.id].a[1])} vs {name($matchTeams[m.id].b[0])} &amp; {name($matchTeams[m.id].b[1])}</span>
+								<span class="muted small">
+									— {name($matchTeams[m.id].a[0])} &amp; {name($matchTeams[m.id].a[1])}
+									vs {name($matchTeams[m.id].b[0])} &amp; {name($matchTeams[m.id].b[1])}
+								</span>
 							{/if}
 						</span>
+
 						<span class="row">
 							{#if m.status === 'FINISHED'}
 								<span class="mono">{m.score_a}–{m.score_b}</span>
 							{/if}
-							<span class="badge dot" class:badge-live={m.status === 'PLAYING'}>{statusLabel(m.status)}</span>
+							<span class="badge dot" class:badge-live={m.status === 'PLAYING'}>
+								{statusLabel(m.status)}
+							</span>
 						</span>
 					</a>
 				{/each}
@@ -723,10 +743,6 @@
 	{#if hudOpen}
 		<div class="hud-backdrop" onclick={() => (hudOpen = false)} role="presentation"></div>
 		<div class="hud-panel rise-in">
-			<div class="hud-panel-head spread">
-				<h2 class="section-title" style="margin:0;">Host tools</h2>
-				<button class="btn btn-ghost btn-sm" onclick={() => (hudOpen = false)}>Close</button>
-			</div>
 			<div class="tool-tabs" role="tablist" aria-label="Host tools">
 				<button class:active={activeTool === 'match'} onclick={() => (activeTool = 'match')}>Match</button>
 				<button class:active={activeTool === 'courts'} onclick={() => (activeTool = 'courts')}>Courts</button>
@@ -737,17 +753,51 @@
 				{#if activeTool === 'invite'}
 					<div class="stack">
 						{#if club}
+						<div class="card card-tight">
+							<p class="muted small">Invite link · hold to copy</p>
 							<button
 								type="button"
-								class="card card-tight invite-card row spread"
+								class="link-text mono"
 								class:copied={linkCopied}
 								use:longpress={copyInvite}
+								aria-label="Hold to copy invite link"
 							>
-								<div>
-									<span class="faint small">Invite link · hold to copy</span>
-									<p class="mono small link-text">{inviteLink}</p>
-								</div>
+								{inviteLink}
 							</button>
+						</div>
+						<div class="card builder">
+							<h2 class="section-title">Guest players</h2>
+							<p class="faint small">Add players who didn't join via the link. Paste names, one per line or comma-separated.</p>
+							<textarea
+								class="input"
+								bind:value={guestNames}
+								rows="3"
+								placeholder="Alice&#10;Bob&#10;Charlie"
+							></textarea>
+							<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick={parseGuestNames} disabled={!guestNames.trim()}>
+								Add names
+							</button>
+		
+							{#if guestDraft.length}
+								<div class="stack" style="margin-top:12px;">
+									{#each guestDraft as g, i (g.name)}
+										<div class="row spread guest-row">
+											<span class="pname">{g.name}</span>
+											<div class="row">
+												<div class="segmented mini" role="radiogroup" aria-label="Gender for {g.name}">
+													<button type="button" class:active={g.gender === 'MALE'} onclick={() => setGuestGender(i, 'MALE')}>M</button>
+													<button type="button" class:active={g.gender === 'FEMALE'} onclick={() => setGuestGender(i, 'FEMALE')}>F</button>
+												</div>
+												<button class="link-btn" onclick={() => removeGuest(i)} title="Remove">✕</button>
+											</div>
+										</div>
+									{/each}
+								</div>
+								<button class="btn btn-primary" style="margin-top:12px;" onclick={addGuests} disabled={addingGuests}>
+									{addingGuests ? 'Adding…' : `Add ${guestDraft.length} guest${guestDraft.length > 1 ? 's' : ''}`}
+								</button>
+							{/if}
+						</div>
 						{:else}
 							<p class="muted small">Loading club info…</p>
 						{/if}
@@ -791,208 +841,166 @@
 							{/if}
 						</div>
 					</div>
-				{:else if session.status === 'ACTIVE'}
-				{/if}
-
-				<div class="card builder">
-					<h2 class="section-title">Guest players</h2>
-					<p class="faint small">Add players who didn't join via the link. Paste names, one per line or comma-separated.</p>
-					<textarea
-						class="input"
-						bind:value={guestNames}
-						rows="3"
-						placeholder="Alice&#10;Bob&#10;Charlie"
-					></textarea>
-					<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick={parseGuestNames} disabled={!guestNames.trim()}>
-						Add names
-					</button>
-
-					{#if guestDraft.length}
-						<div class="stack" style="margin-top:12px;">
-							{#each guestDraft as g, i (g.name)}
-								<div class="row spread guest-row">
-									<span class="pname">{g.name}</span>
-									<div class="row">
-										<div class="segmented mini" role="radiogroup" aria-label="Gender for {g.name}">
-											<button type="button" class:active={g.gender === 'MALE'} onclick={() => setGuestGender(i, 'MALE')}>M</button>
-											<button type="button" class:active={g.gender === 'FEMALE'} onclick={() => setGuestGender(i, 'FEMALE')}>F</button>
-										</div>
-										<button class="link-btn" onclick={() => removeGuest(i)} title="Remove">✕</button>
-									</div>
-								</div>
-							{/each}
-						</div>
-						<button class="btn btn-primary" style="margin-top:12px;" onclick={addGuests} disabled={addingGuests}>
-							{addingGuests ? 'Adding…' : `Add ${guestDraft.length} guest${guestDraft.length > 1 ? 's' : ''}`}
-						</button>
-					{/if}
-				</div>
-
-				<form onsubmit={addCourt} class="row add-court">
-					<input class="input" placeholder="Court name (e.g. Court 3)" bind:value={newCourtName} maxlength="40" />
-					<button class="btn btn-ghost btn-sm" disabled={addingCourt || !newCourtName.trim()}>Add court</button>
-				</form>
-
-				{#if session.status !== 'FINISHED'}
-					<div class="card builder">
-						<h2 class="section-title">Matchmaking</h2>
-						<div class="field">
-							<span class="field-label" id="assignment-mode-label">Assignment</span>
-							<div class="segmented" role="radiogroup" aria-labelledby="assignment-mode-label">
-								<button
-									type="button"
-									class:active={session.assignment_mode === 'AUTOMATIC'}
-									onclick={() => changeMode('AUTOMATIC')}
-									disabled={changingMode}
-								>
-									Automatic
-								</button>
-								<button
-									type="button"
-									class:active={session.assignment_mode === 'MANUAL'}
-									onclick={() => changeMode('MANUAL')}
-									disabled={changingMode}
-								>
-									Manual
-								</button>
-							</div>
-							<p class="faint small">
-								{session.assignment_mode === 'AUTOMATIC'
-									? 'The engine picks the next four by rating and wait time.'
-									: "You pick the four; we suggest fair teams."}
-							</p>
-						</div>
-
-						{#if session.assignment_mode === 'AUTOMATIC'}
+				{:else if activeTool === 'match'}
+					{#if session.status !== 'FINISHED'}
+						<div class="card builder">
+							<h2 class="section-title">Matchmaking</h2>
 							<div class="field">
-								<span class="field-label" id="auto-fill-label">Auto-fill empty courts</span>
-								<div class="segmented" role="radiogroup" aria-labelledby="auto-fill-label">
+								<span class="field-label" id="assignment-mode-label">Assignment</span>
+								<div class="segmented" role="radiogroup" aria-labelledby="assignment-mode-label">
 									<button
 										type="button"
-										class:active={session.auto_fill_enabled}
-										onclick={() => setAutoFill(true)}
-										disabled={togglingAutoFill}
+										class:active={session.assignment_mode === 'AUTOMATIC'}
+										onclick={() => changeMode('AUTOMATIC')}
+										disabled={changingMode}
 									>
-										On
+										Automatic
 									</button>
 									<button
 										type="button"
-										class:active={!session.auto_fill_enabled}
-										onclick={() => setAutoFill(false)}
-										disabled={togglingAutoFill}
+										class:active={session.assignment_mode === 'MANUAL'}
+										onclick={() => changeMode('MANUAL')}
+										disabled={changingMode}
 									>
-										Off
+										Manual
 									</button>
 								</div>
 								<p class="faint small">
-									{session.auto_fill_enabled
-										? 'Open courts fill themselves; no tap needed.'
-										: "You'll tap Generate match for each open court."}
+									{session.assignment_mode === 'AUTOMATIC'
+										? 'The engine picks the next four by rating and wait time.'
+										: "You pick the four; we suggest fair teams."}
 								</p>
 							</div>
-						{/if}
-					</div>
-				{/if}
 
-				{#if session.status === 'ACTIVE'}
-					<div class="card builder">
-						<h2 class="section-title">Next match</h2>
-						{#if availableCourts.length === 0}
-							<p class="muted small">No open courts right now.</p>
-						{:else if waiting.length < 4}
-							<p class="muted small">Need at least 4 waiting players ({waiting.length} now).</p>
-						{:else if session.assignment_mode === 'AUTOMATIC'}
-							<div class="stack">
-								<div class="row wrap">
-									<select class="select" bind:value={autoCourtId}>
-										{#each availableCourts as c}
-											<option value={c.id}>{c.name}</option>
-										{/each}
-									</select>
-								</div>
-								<button class="btn btn-primary" onclick={generateAuto} disabled={generating}>
-									{generating ? 'Assigning…' : 'Generate match'}
-								</button>
-								<p class="faint small">Picks the fairest 4 from the queue automatically.</p>
-							</div>
-						{:else}
-							<div class="stack">
-								<p class="muted small">Pick 4 waiting players ({selectedIds.length}/4).</p>
-								<div class="pick-grid">
-									{#each waiting as p (p.id)}
+							{#if session.assignment_mode === 'AUTOMATIC'}
+								<div class="field">
+									<span class="field-label" id="auto-fill-label">Auto-fill empty courts</span>
+									<div class="segmented" role="radiogroup" aria-labelledby="auto-fill-label">
 										<button
 											type="button"
-											class="pick-chip"
-											class:selected={selectedIds.includes(p.player_id)}
-											disabled={!selectedIds.includes(p.player_id) && selectedIds.length >= 4}
-											onclick={() => toggleSelect(p.player_id)}
+											class:active={session.auto_fill_enabled}
+											onclick={() => setAutoFill(true)}
+											disabled={togglingAutoFill}
 										>
-											{name(p.player_id)}
-											{#if rating(p.player_id)}<span class="mono faint"> {Math.round(rating(p.player_id) ?? 0)}</span>{/if}
+											On
 										</button>
-									{/each}
-								</div>
-
-								<button class="btn btn-ghost" onclick={previewManual} disabled={selectedIds.length !== 4 || recommending}>
-									{recommending ? 'Balancing…' : 'Preview teams'}
-								</button>
-
-								{#if proposal}
-									<p class="faint small">Drag a player onto the other team to swap.</p>
-									<div class="proposal rise-in">
-										<div class="team" class:drop-hover={hoverPlayerId && proposal.a.includes(hoverPlayerId) && dragging?.from === 'b'}>
-											<span class="faint small">Team A</span>
-											<div class="team-players">
-												{#each proposal.a as id (id)}
-													<button
-														type="button"
-														class="drag-chip"
-														class:dragging-self={dragging?.id === id}
-														data-player-slot={id}
-														onpointerdown={(e) => startDrag(e, id, 'a')}
-													>
-														{name(id)}
-													</button>
-												{/each}
-											</div>
-											<span class="mono faint small">avg {teamAvgRating(proposal.a).toFixed(0)}</span>
-										</div>
-										<span class="vs">vs</span>
-										<div class="team" class:drop-hover={hoverPlayerId && proposal.b.includes(hoverPlayerId) && dragging?.from === 'a'}>
-											<span class="faint small">Team B</span>
-											<div class="team-players">
-												{#each proposal.b as id (id)}
-													<button
-														type="button"
-														class="drag-chip"
-														class:dragging-self={dragging?.id === id}
-														data-player-slot={id}
-														onpointerdown={(e) => startDrag(e, id, 'b')}
-													>
-														{name(id)}
-													</button>
-												{/each}
-											</div>
-											<span class="mono faint small">avg {teamAvgRating(proposal.b).toFixed(0)}</span>
-										</div>
+										<button
+											type="button"
+											class:active={!session.auto_fill_enabled}
+											onclick={() => setAutoFill(false)}
+											disabled={togglingAutoFill}
+										>
+											Off
+										</button>
 									</div>
+									<p class="faint small">
+										{session.auto_fill_enabled
+											? 'Open courts fill themselves; no tap needed.'
+											: "You'll tap Generate match for each open court."}
+									</p>
+								</div>
+							{/if}
+						</div>
+					{/if}
+					{:else if session.status === 'ACTIVE'}
+						<div class="card builder">
+							<h2 class="section-title">Next match</h2>
+							{#if availableCourts.length === 0}
+								<p class="muted small">No open courts right now.</p>
+							{:else if waiting.length < 4}
+								<p class="muted small">Need at least 4 waiting players ({waiting.length} now).</p>
+							{:else if session.assignment_mode === 'AUTOMATIC'}
+								<div class="stack">
 									<div class="row wrap">
-										<select class="select" bind:value={manualCourtId}>
+										<select class="select" bind:value={autoCourtId}>
 											{#each availableCourts as c}
 												<option value={c.id}>{c.name}</option>
 											{/each}
 										</select>
-										<button class="btn btn-primary" onclick={confirmManual} disabled={confirming}>
-											{confirming ? 'Confirming…' : 'Confirm match'}
-										</button>
 									</div>
-								{/if}
-							</div>
-						{/if}
-					</div>
-				{:else}
-					<p class="muted small">Start the session before assigning matches.</p>
-				{/if}
+									<button class="btn btn-primary" onclick={generateAuto} disabled={generating}>
+										{generating ? 'Assigning…' : 'Generate match'}
+									</button>
+									<p class="faint small">Picks the fairest 4 from the queue automatically.</p>
+								</div>
+							{:else}
+								<div class="stack">
+									<p class="muted small">Pick 4 waiting players ({selectedIds.length}/4).</p>
+									<div class="pick-grid">
+										{#each waiting as p (p.id)}
+											<button
+												type="button"
+												class="pick-chip"
+												class:selected={selectedIds.includes(p.player_id)}
+												disabled={!selectedIds.includes(p.player_id) && selectedIds.length >= 4}
+												onclick={() => toggleSelect(p.player_id)}
+											>
+												{name(p.player_id)}
+												{#if rating(p.player_id)}<span class="mono faint"> {Math.round(rating(p.player_id) ?? 0)}</span>{/if}
+											</button>
+										{/each}
+									</div>
+
+									<button class="btn btn-ghost" onclick={previewManual} disabled={selectedIds.length !== 4 || recommending}>
+										{recommending ? 'Balancing…' : 'Preview teams'}
+									</button>
+
+									{#if proposal}
+										<p class="faint small">Drag a player onto the other team to swap.</p>
+										<div class="proposal rise-in">
+											<div class="team" class:drop-hover={hoverPlayerId && proposal.a.includes(hoverPlayerId) && dragging?.from === 'b'}>
+												<span class="faint small">Team A</span>
+												<div class="team-players">
+													{#each proposal.a as id (id)}
+														<button
+															type="button"
+															class="drag-chip"
+															class:dragging-self={dragging?.id === id}
+															data-player-slot={id}
+															onpointerdown={(e) => startDrag(e, id, 'a')}
+														>
+															{name(id)}
+														</button>
+													{/each}
+												</div>
+												<span class="mono faint small">avg {teamAvgRating(proposal.a).toFixed(0)}</span>
+											</div>
+											<span class="vs">vs</span>
+											<div class="team" class:drop-hover={hoverPlayerId && proposal.b.includes(hoverPlayerId) && dragging?.from === 'a'}>
+												<span class="faint small">Team B</span>
+												<div class="team-players">
+													{#each proposal.b as id (id)}
+														<button
+															type="button"
+															class="drag-chip"
+															class:dragging-self={dragging?.id === id}
+															data-player-slot={id}
+															onpointerdown={(e) => startDrag(e, id, 'b')}
+														>
+															{name(id)}
+														</button>
+													{/each}
+												</div>
+												<span class="mono faint small">avg {teamAvgRating(proposal.b).toFixed(0)}</span>
+											</div>
+										</div>
+										<div class="row wrap">
+											<select class="select" bind:value={manualCourtId}>
+												{#each availableCourts as c}
+													<option value={c.id}>{c.name}</option>
+												{/each}
+											</select>
+											<button class="btn btn-primary" onclick={confirmManual} disabled={confirming}>
+												{confirming ? 'Confirming…' : 'Confirm match'}
+											</button>
+										</div>
+									{/if}
+								</div>
+							{/if}
+						</div>
+					{:else}
+						<p class="muted small">Start the session before assigning matches.</p>
+					{/if}
 			</div>
 		</div>
 	{/if}
@@ -1103,23 +1111,6 @@
 		opacity: 0.5;
 	}
 
-	button.invite-card {
-		width: 100%;
-		text-align: left;
-		cursor: pointer;
-		transition: background-color 0.15s ease;
-	}
-
-	button.invite-card.copied {
-		background: var(--border);
-		color: var(--accent-contrast);
-	}
-
-	button.invite-card.copied .faint,
-	button.invite-card.copied .link-text {
-		color: inherit;
-	}
-
 	.hud-backdrop {
 		position: fixed;
 		inset: 0;
@@ -1163,19 +1154,25 @@
 			border-radius: var(--radius-lg) 0 0 var(--radius-lg);
 		}
 	}
-
 	.link-text {
-		color: var(--accent);
 		max-width: 260px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 0.5rem;
+		background: none;
+		border: none;
+		padding: 0;
+		margin-top: 4px;
+		text-align: left;
 		font-weight: 800;
 		letter-spacing: 0.08em;
 		color: var(--accent);
 		cursor: pointer;
 		transition: opacity 0.15s ease;
+	}
+
+	.link-text.copied {
+		opacity: 0.5;
 	}
 
 	.section-title {
