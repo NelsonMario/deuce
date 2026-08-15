@@ -1,0 +1,61 @@
+services:
+  # postgres:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: ${DB_USER}
+  #     POSTGRES_PASSWORD: ${DB_PASSWORD}
+  #     POSTGRES_DB: ${DB_NAME}
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
+
+  # migrate:
+  #   image: migrate/migrate:v4.19.1
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./backend/migrations:/migrations
+  #   command:
+  #     [
+  #       "-path", "/migrations",
+  #       "-database", "postgres://${DB_USER}:${DB_PASSWORD}@postgres:${DB_PORT:-5432}/${DB_NAME}?sslmode=${DB_SSLMODE:-disable}",
+  #       "up",
+  #     ]
+  #   restart: "no"
+  # Not used: this project runs against hosted Supabase, not a local Postgres
+  # instance — the backend connects straight to it using DB_HOST/DB_PORT/etc
+  # from .env, no local db or migration container needed.
+
+  # migrate:
+  #   image: migrate/migrate:v4.19.1
+  #   volumes:
+  #     - ./backend/migrations:/migrations
+  #   env_file:
+  #     - .env
+  #   command:
+  #     - "-path=/migrations"
+  #     - "-database"
+  #     - "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${DB_SSLMODE}"
+  #     - "up"
+
+  backend:
+    build:
+      context: ./backend
+      args:
+        VERSION: "${VERSION}"
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:

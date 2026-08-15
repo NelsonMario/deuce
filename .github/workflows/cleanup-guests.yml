@@ -1,0 +1,74 @@
+name: Cleanup guest players
+
+# Guest players (players.is_guest = true) are host-registered stand-ins for
+# people who didn't join via the invite link. They're temporary: this job
+# periodically deletes any guest not seen in RETENTION_DAYS so they don't
+# accumulate in Supabase. Guests are matched case-insensitively by name when
+# re-registered, and re-registering refreshes players.updated_at, so a guest
+# who keeps coming back is never treated as stale.
+#
+# Required repo secret: SUPABASE_DATABASE_URL — the Supabase Postgres
+# connection string. Use the DIRECT connection (port 5432), not the
+# transaction pooler (port 6543), because this job runs an explicit
+# BEGIN/COMMIT transaction which the transaction pooler doesn't preserve.
+# e.g. postgresql://postgres.xxx:pass@aws-0-region.supabase.co:5432/postgres
+# Set it under Settings > Secrets and variables > Actions.
+
+on:
+  schedule:
+    - cron: '17 3 * * *' # daily, 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: 'Delete guests not seen in this many days'
+        required: false
+        default: '30'
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Delete stale guest players
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          RETENTION_DAYS: ${{ inputs.retention_days || '30' }}
+        run: |
+          set -euo pipefail
+          RETENTION_DAYS="${RETENTION_DAYS:-30}"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
+          BEGIN;
+
+          -- match_players.player_id has no ON DELETE CASCADE, so remove those
+          -- rows first; rating_history, club_members, player_ratings,
+          -- session_players and player_tokens all cascade on player delete.
+          DELETE FROM match_players
+          WHERE player_id IN (
+            SELECT p.id
+            FROM players p
+            WHERE p.is_guest
+              AND p.updated_at < now() - make_interval(days => ${RETENTION_DAYS})
+              AND NOT EXISTS (
+                SELECT 1
+                FROM session_players sp
+                JOIN sessions s ON s.id = sp.session_id
+                WHERE sp.player_id = p.id
+                  AND s.status IN ('NOT_STARTED', 'ACTIVE')
+              )
+          );
+
+          DELETE FROM players
+          WHERE is_guest
+            AND updated_at < now() - make_interval(days => ${RETENTION_DAYS})
+            AND NOT EXISTS (
+              SELECT 1
+              FROM session_players sp
+              JOIN sessions s ON s.id = sp.session_id
+              WHERE sp.player_id = players.id
+                AND s.status IN ('NOT_STARTED', 'ACTIVE')
+            );
+
+          COMMIT;
+          SQL

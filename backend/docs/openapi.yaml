@@ -1,0 +1,811 @@
+openapi: 3.0.3
+info:
+  title: Badminton Club Backend API
+  version: "1.0.0"
+  description: >
+    Backend-first V1 API for automatically rotating players and generating
+    balanced doubles badminton matches. Accountless: players authenticate
+    with an opaque bearer token issued at join time, never a
+    username/password.
+servers:
+  - url: /api/v1
+
+tags:
+  - name: clubs
+  - name: sessions
+  - name: matches
+  - name: players
+
+components:
+  securitySchemes:
+    PlayerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: >
+        Token issued when a player joins a club or session. Send as
+        `Authorization: Bearer <token>`.
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: PLAYER_NOT_ELIGIBLE
+            message:
+              type: string
+              example: Player is not in WAITING state
+      required: [error]
+
+    Gender:
+      type: string
+      enum: [MALE, FEMALE]
+
+    MatchFormat:
+      type: string
+      enum: [MIXED_DOUBLES, MEN_DOUBLES, WOMEN_DOUBLES]
+
+    AssignmentMode:
+      type: string
+      enum: [AUTOMATIC, MANUAL]
+
+    SessionStatus:
+      type: string
+      enum: [NOT_STARTED, ACTIVE, FINISHED]
+
+    SessionPlayerStatus:
+      type: string
+      enum: [WAITING, PLAYING, BREAK, ENDED]
+
+    MatchStatus:
+      type: string
+      enum: [CREATED, PLAYING, FINISHED]
+
+    Player:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: string }
+        gender: { $ref: '#/components/schemas/Gender' }
+
+    DeviceId:
+      type: string
+      maxLength: 100
+      description: >
+        Optional v2 device identity. A random ID the client generates once
+        (e.g. crypto.randomUUID()) and persists client-side (e.g.
+        localStorage), sent on every create/join call. When it matches a
+        previous call for the same club, the caller is recognized as that
+        same player instead of getting a brand-new identity — see
+        `internal/device` and PlayerAuth.returning. Omit to always create a
+        new identity, exactly like v1.
+
+    PlayerAuth:
+      type: object
+      properties:
+        player: { $ref: '#/components/schemas/Player' }
+        token:
+          type: string
+          description: Opaque bearer token. Store securely; never re-issued.
+        returning:
+          type: boolean
+          description: >
+            v2: true when device_id matched a previous join for this club,
+            so this is an existing player (rating/history/role carried over)
+            rather than a brand-new identity.
+
+    Club:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        host_player_id: { type: string, format: uuid }
+        join_code: { type: string }
+
+    ClubRole:
+      type: string
+      enum: [HOST, PLAYER]
+
+    Member:
+      type: object
+      properties:
+        player_id: { type: string, format: uuid }
+        role: { $ref: '#/components/schemas/ClubRole' }
+        joined_at: { type: string, format: date-time }
+
+    Session:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        club_id: { type: string, format: uuid }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        assignment_mode: { $ref: '#/components/schemas/AssignmentMode' }
+        auto_fill_enabled: { type: boolean }
+        started_at: { type: string, format: date-time, nullable: true }
+        ended_at: { type: string, format: date-time, nullable: true }
+
+    SessionPlayer:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        player_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/SessionPlayerStatus' }
+        matches_played: { type: integer }
+        wins: { type: integer }
+        losses: { type: integer }
+        waiting_seconds: { type: integer }
+
+    Court:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { type: string, enum: [AVAILABLE, PLAYING] }
+
+    Match:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        court_id: { type: string, format: uuid }
+        format: { $ref: '#/components/schemas/MatchFormat' }
+        status: { $ref: '#/components/schemas/MatchStatus' }
+        started_at: { type: string, format: date-time, nullable: true }
+        ended_at: { type: string, format: date-time, nullable: true }
+        score_a: { type: integer, nullable: true }
+        score_b: { type: integer, nullable: true }
+        winner: { type: string, enum: [A, B], nullable: true }
+
+    Proposal:
+      type: object
+      description: Recommended balanced team split for MANUAL assignment.
+      properties:
+        team_a:
+          type: array
+          items: { type: string, format: uuid }
+          minItems: 2
+          maxItems: 2
+        team_b:
+          type: array
+          items: { type: string, format: uuid }
+          minItems: 2
+          maxItems: 2
+        team_a_rating: { type: number }
+        team_b_rating: { type: number }
+        rating_diff: { type: number }
+
+  parameters:
+    ClubId:
+      name: clubId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MatchId:
+      name: matchId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PlayerId:
+      name: playerId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: Missing/invalid token or join code
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: Host privileges required
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Conflict:
+      description: Invalid state transition
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+paths:
+  /clubs:
+    post:
+      tags: [clubs]
+      summary: Create a club (host onboarding)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [club_name, host_display_name, host_gender]
+              properties:
+                club_name: { type: string }
+                host_display_name: { type: string }
+                host_gender: { $ref: '#/components/schemas/Gender' }
+                device_id: { $ref: '#/components/schemas/DeviceId' }
+      responses:
+        '201':
+          description: Club created; host is authenticated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  club: { $ref: '#/components/schemas/Club' }
+                  host: { $ref: '#/components/schemas/PlayerAuth' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /clubs/{clubId}/join:
+    post:
+      tags: [clubs]
+      summary: Join a club using its join code
+      parameters:
+        - $ref: '#/components/parameters/ClubId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [join_code, display_name, gender]
+              properties:
+                join_code: { type: string }
+                display_name: { type: string }
+                gender: { $ref: '#/components/schemas/Gender' }
+                device_id: { $ref: '#/components/schemas/DeviceId' }
+      responses:
+        '201':
+          description: Joined; player authenticated (new or recognized returning device — see PlayerAuth.returning).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  club: { $ref: '#/components/schemas/Club' }
+                  you: { $ref: '#/components/schemas/PlayerAuth' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /clubs/{clubId}:
+    get:
+      tags: [clubs]
+      security: [{ PlayerToken: [] }]
+      summary: Get club details
+      parameters:
+        - $ref: '#/components/parameters/ClubId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Club' }
+
+  /clubs/{clubId}/me:
+    get:
+      tags: [clubs]
+      security: [{ PlayerToken: [] }]
+      summary: >
+        Self-check the caller's own membership role in the club. This is how
+        a client recognizes "I'm a host" on a device that didn't create the
+        club (e.g. a promoted co-host) — see PromoteMember below.
+      parameters:
+        - $ref: '#/components/parameters/ClubId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  role: { $ref: '#/components/schemas/ClubRole' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /clubs/{clubId}/members:
+    get:
+      tags: [clubs]
+      security: [{ PlayerToken: [] }]
+      summary: List club members and their roles (host only — for deciding who to promote, not a public roster)
+      parameters:
+        - $ref: '#/components/parameters/ClubId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items: { $ref: '#/components/schemas/Member' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /clubs/{clubId}/members/{playerId}/promote:
+    post:
+      tags: [clubs]
+      security: [{ PlayerToken: [] }]
+      summary: >
+        Grant an existing club member HOST privileges alongside (not
+        instead of) the current host(s). The caller must already be a
+        host. There's no "demote" — see docs/v2-plan.md.
+      parameters:
+        - $ref: '#/components/parameters/ClubId'
+        - name: playerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Promoted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sessions:
+    post:
+      tags: [sessions]
+      security: [{ PlayerToken: [] }]
+      summary: Create a session (host only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [club_id]
+              properties:
+                club_id: { type: string, format: uuid }
+                name: { type: string }
+                assignment_mode: { $ref: '#/components/schemas/AssignmentMode' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /sessions/{sessionId}:
+    get:
+      tags: [sessions]
+      security: [{ PlayerToken: [] }]
+      summary: Get session detail (session, players, courts)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  players:
+                    type: array
+                    items: { $ref: '#/components/schemas/SessionPlayer' }
+                  courts:
+                    type: array
+                    items: { $ref: '#/components/schemas/Court' }
+
+  /sessions/{sessionId}/join:
+    post:
+      tags: [sessions]
+      summary: Join a session (scan QR -> enter name -> select gender -> join)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [join_code, display_name, gender]
+              properties:
+                join_code: { type: string }
+                display_name: { type: string }
+                gender: { $ref: '#/components/schemas/Gender' }
+                device_id: { $ref: '#/components/schemas/DeviceId' }
+      responses:
+        '201':
+          description: Joined session; player is WAITING (new or recognized returning device — see PlayerAuth.returning).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  session_player: { $ref: '#/components/schemas/SessionPlayer' }
+                  you: { $ref: '#/components/schemas/PlayerAuth' }
+
+  /sessions/{sessionId}/start:
+    post:
+      tags: [sessions]
+      security: [{ PlayerToken: [] }]
+      summary: Start a session (host only)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /sessions/{sessionId}/end:
+    post:
+      tags: [sessions]
+      security: [{ PlayerToken: [] }]
+      summary: End a session (host only)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+
+  /sessions/{sessionId}/assignment-mode:
+    patch:
+      tags: [sessions]
+      security: [{ PlayerToken: [] }]
+      summary: Change a session's matchmaking assignment mode (host only)
+      description: >
+        Toggles AUTOMATIC/MANUAL matchmaking on an existing session,
+        including while it is ACTIVE. Takes effect for the next match
+        generated on the session; matches already in progress are
+        unaffected.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignment_mode]
+              properties:
+                assignment_mode: { $ref: '#/components/schemas/AssignmentMode' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /sessions/{sessionId}/auto-fill:
+    patch:
+      tags: [sessions]
+      security: [{ PlayerToken: [] }]
+      summary: Toggle fully-automatic court auto-fill for a session (host only)
+      description: >
+        Controls whether the backend's auto-fill background job keeps
+        generating matches for this session's empty courts with no host
+        trigger, whenever the session is ACTIVE and in AUTOMATIC assignment
+        mode. May be toggled at any point in the session lifecycle.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [auto_fill_enabled]
+              properties:
+                auto_fill_enabled: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sessions/{sessionId}/courts:
+    post:
+      tags: [sessions]
+      security: [{ PlayerToken: [] }]
+      summary: Add a court to a session (host only)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Court' }
+
+  /sessions/{sessionId}/matches/generate:
+    post:
+      tags: [matches]
+      security: [{ PlayerToken: [] }]
+      summary: Automatically generate a match (host only, AUTOMATIC flow)
+      description: >
+        Creates the match and reserves the four selected WAITING players
+        (WAITING -> PLAYING) but does NOT start it. The host must call
+        `/matches/{matchId}/start` explicitly.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [court_id, format]
+              properties:
+                court_id: { type: string, format: uuid }
+                format: { $ref: '#/components/schemas/MatchFormat' }
+      responses:
+        '201':
+          description: Match created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Match' }
+        '409':
+          description: Insufficient eligible players or court unavailable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /sessions/{sessionId}/matches/manual/recommend:
+    post:
+      tags: [matches]
+      security: [{ PlayerToken: [] }]
+      summary: Recommend a balanced team split for 4 host-selected players (MANUAL flow)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [player_ids, format]
+              properties:
+                player_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                  minItems: 4
+                  maxItems: 4
+                format: { $ref: '#/components/schemas/MatchFormat' }
+      responses:
+        '200':
+          description: Recommendation (host may override before confirming)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Proposal' }
+
+  /sessions/{sessionId}/matches/manual/confirm:
+    post:
+      tags: [matches]
+      security: [{ PlayerToken: [] }]
+      summary: Confirm a manual match assignment (host only)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [court_id, format, team_a, team_b]
+              properties:
+                court_id: { type: string, format: uuid }
+                format: { $ref: '#/components/schemas/MatchFormat' }
+                team_a:
+                  type: array
+                  items: { type: string, format: uuid }
+                  minItems: 2
+                  maxItems: 2
+                team_b:
+                  type: array
+                  items: { type: string, format: uuid }
+                  minItems: 2
+                  maxItems: 2
+      responses:
+        '201':
+          description: Match created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Match' }
+
+  /sessions/{sessionId}/matches:
+    get:
+      tags: [matches]
+      security: [{ PlayerToken: [] }]
+      summary: List matches for a session
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  matches:
+                    type: array
+                    items: { $ref: '#/components/schemas/Match' }
+
+  /session-players/{id}/status:
+    patch:
+      tags: [sessions]
+      security: [{ PlayerToken: [] }]
+      summary: Set a session player's status (self, or host override)
+      description: >
+        Only WAITING, BREAK, and ENDED may be set here. PLAYING is
+        exclusively backend-controlled via match generation/finish.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [WAITING, BREAK, ENDED] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionPlayer' }
+        '409':
+          description: Invalid state transition
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /matches/{matchId}:
+    get:
+      tags: [matches]
+      security: [{ PlayerToken: [] }]
+      summary: Get match detail
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Match' }
+
+  /matches/{matchId}/start:
+    post:
+      tags: [matches]
+      security: [{ PlayerToken: [] }]
+      summary: Start a match (host only); records started_at
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Match' }
+
+  /matches/{matchId}/finish:
+    post:
+      tags: [matches]
+      security: [{ PlayerToken: [] }]
+      summary: Finish a match (host only); atomically updates ratings
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score_a, score_b]
+              properties:
+                score_a: { type: integer, minimum: 0 }
+                score_b: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Match' }
+
+  /players/{playerId}:
+    get:
+      tags: [players]
+      security: [{ PlayerToken: [] }]
+      summary: Get player profile
+      parameters:
+        - $ref: '#/components/parameters/PlayerId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Player' }
+
+  /players/{playerId}/rating:
+    get:
+      tags: [players]
+      security: [{ PlayerToken: [] }]
+      summary: Get player's current rating
+      parameters:
+        - $ref: '#/components/parameters/PlayerId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  player_id: { type: string, format: uuid }
+                  rating: { type: number }
+
+  /players/{playerId}/matches:
+    get:
+      tags: [players]
+      security: [{ PlayerToken: [] }]
+      summary: List a player's match history
+      parameters:
+        - $ref: '#/components/parameters/PlayerId'
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  matches:
+                    type: array
+                    items: { type: object }

@@ -1,0 +1,451 @@
+:root {
+	--bg: #0a0a0b;
+	--bg-elevated: #131316;
+	--bg-elevated-2: #1c1c20;
+	--border: #35353c;
+	--border-soft: #26262b;
+	--text: #f4f4ef;
+	--text-dim: #a2a2ac;
+	--text-faint: #66666f;
+	--accent: #c6ff5c;
+	--accent-strong: #aef23d;
+	--accent-contrast: #060a02;
+	/* pop-art secondary accents: used for outline-pop, offset shadows, and
+	   spot-color accents so the palette reads as bold/graphic rather than a
+	   single-hue dark theme. */
+	--pop-pink: #ff3ea5;
+	--pop-cyan: #3ef2ff;
+	--danger: #ff5470;
+	--danger-bg: #34121b;
+	--warn: #ffc23e;
+	--warn-bg: #332510;
+	--ok-bg: #16241a;
+	--radius-lg: 16px;
+	--radius: 12px;
+	--radius-sm: 8px;
+	/* hard-edged, colored offset shadows instead of blurred glows — the
+	   "printed on top of" comic-panel look. Blurred/black shadows disappear
+	   against the near-black background, so these lean on color instead. */
+	--shadow: 6px 6px 0 0 rgba(198, 255, 92, 0.18);
+	--shadow-pink: 6px 6px 0 0 rgba(255, 62, 165, 0.22);
+	--shadow-sm: 3px 3px 0 0 rgba(198, 255, 92, 0.22);
+	--font-sans:
+		-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+	--font-mono: 'SF Mono', ui-monospace, 'Menlo', 'Cascadia Code', monospace;
+	--font-display: 'Bebas Neue', var(--font-sans);
+}
+
+/* halftone dot texture — used sparingly as a decorative layer (topbar,
+   hero), never as a full-page background, so it reads as an accent rather
+   than clutter. */
+.halftone {
+	position: relative;
+	z-index: 0;
+}
+
+.halftone::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	background-image: radial-gradient(currentColor 1px, transparent 1.4px);
+	background-size: 14px 14px;
+	color: var(--accent);
+	opacity: 0.08;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	padding: 0;
+	margin: 0;
+}
+
+body {
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+	line-height: 1.45;
+}
+
+h1,
+h2,
+h3,
+p {
+	margin: 0;
+}
+
+h1,
+h2,
+h3 {
+	font-family: var(--font-display);
+	font-weight: 400;
+	letter-spacing: 0.01em;
+}
+
+a {
+	color: inherit;
+	text-decoration: none;
+}
+
+button {
+	font-family: inherit;
+}
+
+.mono {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+.container {
+	width: 100%;
+	max-width: 640px;
+	margin: 0 auto;
+	padding: 0 20px;
+}
+
+.container-wide {
+	width: 100%;
+	max-width: 920px;
+	margin: 0 auto;
+	padding: 0 20px;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 12px 20px;
+	border-radius: var(--radius-sm);
+	border: 2px solid transparent;
+	font-size: 0.9rem;
+	font-weight: 800;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	cursor: pointer;
+	transition:
+		transform 0.12s ease,
+		box-shadow 0.12s ease,
+		background-color 0.15s ease,
+		border-color 0.15s ease,
+		opacity 0.15s ease;
+	white-space: nowrap;
+	touch-action: manipulation;
+}
+
+.btn:active:not(:disabled) {
+	transform: translate(2px, 2px);
+	box-shadow: none !important;
+}
+
+.btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.btn-primary {
+	background: var(--accent);
+	color: var(--accent-contrast);
+	border-color: var(--accent-contrast);
+	box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover:not(:disabled) {
+	background: var(--accent-strong);
+}
+
+.btn-ghost {
+	background: transparent;
+	border-color: var(--border);
+	color: var(--text);
+}
+
+.btn-ghost:hover:not(:disabled) {
+	border-color: var(--text-dim);
+	background: var(--bg-elevated);
+}
+
+.btn-danger {
+	background: transparent;
+	border-color: var(--danger);
+	color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+	background: var(--danger-bg);
+}
+
+.btn-sm {
+	padding: 8px 14px;
+	font-size: 0.85rem;
+}
+
+.btn-block {
+	width: 100%;
+}
+
+/* ---------- forms ---------- */
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-bottom: 16px;
+}
+
+.field label {
+	font-size: 0.8rem;
+	color: var(--text-dim);
+	font-weight: 600;
+	letter-spacing: 0.01em;
+}
+
+.input,
+.select {
+	background: var(--bg-elevated);
+	border: 2px solid var(--border);
+	color: var(--text);
+	border-radius: var(--radius-sm);
+	padding: 12px 14px;
+	font-size: 1rem;
+	width: 100%;
+	transition:
+		border-color 0.15s ease,
+		box-shadow 0.15s ease;
+}
+
+.input:focus,
+.select:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: var(--shadow-sm);
+}
+
+.input::placeholder {
+	color: var(--text-faint);
+}
+
+.segmented {
+	display: flex;
+	gap: 6px;
+	background: var(--bg-elevated);
+	border: 2px solid var(--border);
+	border-radius: var(--radius-sm);
+	padding: 4px;
+}
+
+.segmented button {
+	flex: 1;
+	border: none;
+	background: transparent;
+	color: var(--text-dim);
+	padding: 9px 10px;
+	border-radius: 6px;
+	font-size: 0.82rem;
+	font-weight: 800;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.segmented button.active {
+	background: var(--accent);
+	color: var(--accent-contrast);
+}
+
+/* ---------- cards ---------- */
+
+.card {
+	background: var(--bg-elevated);
+	border: 1.5px solid var(--border);
+	border-radius: var(--radius-lg);
+	padding: 22px;
+}
+
+.card-tight {
+	padding: 16px;
+}
+
+/* reserved for a handful of standout surfaces (hero, "you" card) — not the
+   default card, so the hard offset shadow reads as emphasis, not wallpaper. */
+.card-pop {
+	border: 2px solid var(--accent);
+	box-shadow: var(--shadow);
+}
+
+.card-pop.card-pop-pink {
+	border-color: var(--pop-pink);
+	box-shadow: var(--shadow-pink);
+}
+
+/* ---------- badges / status dots ---------- */
+
+.badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 0.72rem;
+	font-weight: 800;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	padding: 4px 9px;
+	border-radius: 100px;
+	background: transparent;
+	border: 1.5px solid var(--border);
+	color: var(--text-dim);
+}
+
+.badge.dot::before {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+/* flat, solid-fill spot color instead of a tint — bolder/more graphic, at
+   the cost of using it only where it truly means something (won't be used
+   at high density). */
+.badge-accent {
+	background: var(--accent);
+	border-color: var(--accent-contrast);
+	color: var(--accent-contrast);
+}
+
+.badge-warn {
+	background: var(--warn);
+	border-color: var(--accent-contrast);
+	color: var(--accent-contrast);
+}
+
+.badge-danger {
+	background: var(--danger);
+	border-color: var(--accent-contrast);
+	color: var(--accent-contrast);
+}
+
+.badge-live {
+	background: var(--pop-cyan);
+	border-color: var(--accent-contrast);
+	color: var(--accent-contrast);
+}
+
+.badge-live.dot::before {
+	animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+	0% {
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+	}
+	70% {
+		box-shadow: 0 0 0 6px transparent;
+	}
+	100% {
+		box-shadow: 0 0 0 0 transparent;
+	}
+}
+
+/* ---------- misc ---------- */
+
+.stack {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.spread {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+/* .row/.spread are used for headers and card top-rows (title + badge +
+   action buttons) with no wrap by default, which overflows on narrow
+   phones once there's more than ~2 items — e.g. a session name + status
+   badge + refresh + start/end buttons. Let them wrap below this width
+   rather than clipping or forcing horizontal scroll. */
+@media (max-width: 420px) {
+	.row,
+	.spread {
+		flex-wrap: wrap;
+	}
+}
+
+.muted {
+	color: var(--text-dim);
+}
+
+.faint {
+	color: var(--text-faint);
+}
+
+.divider {
+	height: 1px;
+	background: var(--border-soft);
+	border: none;
+	margin: 4px 0;
+}
+
+.skeleton {
+	background: linear-gradient(
+		90deg,
+		var(--bg-elevated) 25%,
+		var(--bg-elevated-2) 37%,
+		var(--bg-elevated) 63%
+	);
+	background-size: 400% 100%;
+	animation: shimmer 1.4s ease infinite;
+	border-radius: var(--radius-sm);
+}
+
+@keyframes shimmer {
+	0% {
+		background-position: 100% 50%;
+	}
+	100% {
+		background-position: 0 50%;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.001ms !important;
+		transition-duration: 0.001ms !important;
+	}
+}
+
+/* ---------- page transition ---------- */
+
+@keyframes rise-in {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.rise-in {
+	animation: rise-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
