@@ -1,11 +1,13 @@
 <script lang="ts">
-	import Typewriter from '$lib/components/Typewriter.svelte';
-	import { identity } from '$lib/stores/identity';
+	import Typewriter from "$lib/components/Typewriter.svelte";
+	import { identity } from "$lib/stores/identity";
 
 	const phrases = [
-		'Rotate players fairly.',
-		'Balance every doubles match.',
-		'Keep the court moving.'
+		"Stop picking your favorite partner. We’re watching. 👀",
+		"No more “you played twice already.”",
+		"Your friends can’t save your rating.",
+		"Diinjak-injak? Saya DIAM!, Dimaki-maki? Saya DIAM!. Kali ini... SAYA AKAN LAWAN!!!",
+		"Think you deserve the next game? Prove it.",
 	];
 
 	let lastSessionId = $derived($identity.lastSessionId);
@@ -16,13 +18,12 @@
 </svelte:head>
 
 <section class="container hero halftone rise-in">
-	<p class="kicker">badminton session manager</p>
+	<p class="kicker">Smart(?) Court Rotation</p>
 	<h1>
 		<Typewriter {phrases} />
 	</h1>
 	<p class="sub">
-		Create a club, share a join code, and let ratings decide who plays next — so nobody sits out
-		too long and every match is close.
+		Build your club. Bring your crew. We’ll handle the rotation.
 	</p>
 
 	<div class="cta stack">
@@ -42,17 +43,26 @@
 		<div class="how-card card card-tight rise-in">
 			<span class="how-num">01</span>
 			<h3>Create</h3>
-			<p class="muted">Host makes a club and a session, gets a join code to share on the spot.</p>
+			<p class="muted">
+				Host makes a club and a session, gets a join code to share on
+				the spot.
+			</p>
 		</div>
 		<div class="how-card card card-tight rise-in">
 			<span class="how-num">02</span>
 			<h3>Join</h3>
-			<p class="muted">Players scan or type the code, add their name, and land in the queue.</p>
+			<p class="muted">
+				Players scan or type the code, add their name, and land in the
+				queue.
+			</p>
 		</div>
 		<div class="how-card card card-tight rise-in">
 			<span class="how-num">03</span>
 			<h3>Play</h3>
-			<p class="muted">Matches are generated from ratings and wait time. Scores feed the next one.</p>
+			<p class="muted">
+				Matches are generated from ratings and wait time. Scores feed
+				the next one.
+			</p>
 		</div>
 	</div>
 </section>
