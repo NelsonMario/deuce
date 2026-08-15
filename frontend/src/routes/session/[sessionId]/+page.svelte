@@ -901,8 +901,7 @@
 								</div>
 							{/if}
 						</div>
-					{/if}
-					{:else if session.status === 'ACTIVE'}
+
 						<div class="card builder">
 							<h2 class="section-title">Next match</h2>
 							{#if availableCourts.length === 0}
@@ -1001,6 +1000,7 @@
 					{:else}
 						<p class="muted small">Start the session before assigning matches.</p>
 					{/if}
+				{/if}
 			</div>
 		</div>
 	{/if}
