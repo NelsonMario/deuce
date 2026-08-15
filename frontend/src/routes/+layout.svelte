@@ -79,13 +79,37 @@
 	<footer class="footer halftone">
 		<div class="container-wide footer-content">
 			<div class="footer-brand">
-				<span class="version mono">v{__APP_VERSION__}</span>
+				<span class="copyright"
+					>© {new Date().getFullYear()} Nelson Mario</span
+				>
 			</div>
 			<div class="creator-info">
-				<span class="creator-label"
-					>Created by <strong>Nelson Mario</strong></span
-				>
 				<div class="social-links">
+					<a
+						href="https://sonneil.space"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="social-link portfolio"
+						aria-label="Portfolio (sonneil.space)"
+						title="Portfolio (sonneil.space)"
+					>
+						<svg
+							viewBox="0 0 24 24"
+							width="18"
+							height="18"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<circle cx="12" cy="12" r="10" />
+							<line x1="2" y1="12" x2="22" y2="12" />
+							<path
+								d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+							/>
+						</svg>
+					</a>
 					<a
 						href="https://www.instagram.com/nlsnmario/"
 						target="_blank"
@@ -260,8 +284,9 @@
 		color: var(--text-dim);
 	}
 
-	.creator-info strong {
-		color: var(--text);
+	.copyright {
+		font-size: 0.8rem;
+		color: var(--text-dim);
 	}
 
 	.social-links {
