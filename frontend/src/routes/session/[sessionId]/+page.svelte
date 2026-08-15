@@ -7,12 +7,8 @@
 	import { matchTeams, rememberMatchTeams } from '$lib/stores/matchTeams';
 	import { statusLabel, mmss } from '$lib/utils/format';
 	import PullToRefresh from '$lib/components/PullToRefresh.svelte';
-<<<<<<< HEAD
 	import { longpress } from '$lib/utils/gestures';
-	import type { Court, Match, MatchFormat, Session, SessionPlayer } from '$lib/types';
-=======
 	import type { AssignmentMode, Court, Gender, Match, MatchFormat, Session, SessionPlayer } from '$lib/types';
->>>>>>> 2e1c271 (add guest mode)
 
 	let sessionId = $derived(page.params.sessionId ?? '');
 	// Reading $identity directly (not just calling identity.* methods, which
@@ -756,7 +752,6 @@
 							<p class="muted small">Loading club info…</p>
 						{/if}
 					</div>
-<<<<<<< HEAD
 				{:else if activeTool === 'club'}
 					<div class="stack">
 						{#if club}
@@ -797,7 +792,6 @@
 						</div>
 					</div>
 				{:else if session.status === 'ACTIVE'}
-=======
 				{/if}
 
 				<div class="card builder">
@@ -901,7 +895,6 @@
 				{/if}
 
 				{#if session.status === 'ACTIVE'}
->>>>>>> 2e1c271 (add guest mode)
 					<div class="card builder">
 						<h2 class="section-title">Next match</h2>
 						{#if availableCourts.length === 0}
