@@ -268,10 +268,9 @@ func toSession(row db.Session) Session {
 }
 
 func toPlayer(row db.SessionPlayer) Player {
-	return Player{
+	p := Player{
 		ID:                        row.ID,
 		SessionID:                 row.SessionID,
-		PlayerID:                  row.PlayerID,
 		Status:                    PlayerStatus(row.Status),
 		WaitingStartedAt:          row.WaitingStartedAt.Time,
 		AccumulatedWaitingSeconds: row.AccumulatedWaitingSeconds,
@@ -279,6 +278,11 @@ func toPlayer(row db.SessionPlayer) Player {
 		Wins:                      row.Wins,
 		Losses:                    row.Losses,
 	}
+	if row.PlayerID.Valid {
+		id := uuid.UUID(row.PlayerID.Bytes)
+		p.PlayerID = &id
+	}
+	return p
 }
 
 func toCourt(row db.Court) Court {

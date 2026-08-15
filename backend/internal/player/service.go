@@ -3,6 +3,7 @@ package player
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -53,4 +54,19 @@ func (s *Service) ListRatingHistory(ctx context.Context, id uuid.UUID, limit, of
 		return nil, apperr.Internal(err)
 	}
 	return entries, nil
+}
+
+// CleanupStaleGuests deletes guest players not seen (players.updated_at) in
+// retentionDays, skipping any still in a not-started/active session. It
+// returns how many were deleted.
+func (s *Service) CleanupStaleGuests(ctx context.Context, retentionDays int) (int, error) {
+	if retentionDays <= 0 {
+		return 0, apperr.Validation("retention_days must be positive")
+	}
+	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	deleted, err := s.repo.CleanupStaleGuests(ctx, cutoff)
+	if err != nil {
+		return 0, apperr.Internal(err)
+	}
+	return deleted, nil
 }

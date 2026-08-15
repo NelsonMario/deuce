@@ -4,6 +4,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"log/slog"
 	"strings"
 	"time"
@@ -135,6 +136,21 @@ func RequireAuth(hasher auth.Hasher, players player.Repository) fiber.Handler {
 		principal := auth.Principal{PlayerID: p.ID}
 		c.SetUserContext(auth.WithPrincipal(c.UserContext(), principal))
 		c.Locals("principal", principal)
+		return c.Next()
+	}
+}
+
+// RequireCronSecret gates internal endpoints (e.g. guest cleanup) meant to
+// be called by a trusted scheduler, not end users. It compares the
+// X-Cron-Secret header against secret using a constant-time comparison. An
+// empty secret means the endpoint is unconfigured and always rejects, so
+// deployments that haven't set CRON_API_SECRET fail closed rather than
+// leaving the endpoint open.
+func RequireCronSecret(secret string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if secret == "" || subtle.ConstantTimeCompare([]byte(c.Get("X-Cron-Secret")), []byte(secret)) != 1 {
+			return apperr.Unauthorized("invalid or missing cron secret")
+		}
 		return c.Next()
 	}
 }

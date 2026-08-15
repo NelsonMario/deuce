@@ -103,9 +103,12 @@ func toMatch(row db.Match) Match {
 func toPlayer(row db.MatchPlayer) Player {
 	p := Player{
 		MatchID:      row.MatchID,
-		PlayerID:     row.PlayerID,
 		Team:         Team(row.Team),
 		RatingBefore: 0,
+	}
+	if row.PlayerID.Valid {
+		id := uuid.UUID(row.PlayerID.Bytes)
+		p.PlayerID = &id
 	}
 	if row.RatingBefore.Valid {
 		p.RatingBefore = row.RatingBefore.Float64

@@ -22,7 +22,11 @@ type Config struct {
 	DBSSLMode         string
 	JoinCodeLength    int
 	PlayerTokenSecret string
-	CORSOrigins       []string
+	// CronAPISecret authenticates the internal /internal/cleanup-guests
+	// endpoint (checked against the X-Cron-Secret header). Leave unset to
+	// disable the endpoint entirely.
+	CronAPISecret string
+	CORSOrigins   []string
 	// RedisHost is optional. When unset, device-identity linking (v2) is
 	// disabled and the app behaves exactly as v1 (every join creates a new
 	// player identity).
@@ -45,6 +49,7 @@ func Load() (*Config, error) {
 		DBName:            os.Getenv("DB_NAME"),
 		DBSSLMode:         getEnv("DB_SSLMODE", "disable"),
 		PlayerTokenSecret: os.Getenv("PLAYER_TOKEN_SECRET"),
+		CronAPISecret:     os.Getenv("CRON_API_SECRET"),
 		RedisHost:         os.Getenv("REDIS_HOST"),
 		RedisPort:         getEnv("REDIS_PORT", "6379"),
 		RedisUsername:     getEnv("REDIS_USERNAME", "default"),

@@ -50,8 +50,12 @@ ORDER BY created_at;
 -- ============================================================
 
 -- name: AddSessionPlayer :one
+-- player_id is cast explicitly because the column is nullable (see
+-- migration 000001 — cleared via ON DELETE SET NULL when a guest is later
+-- deleted); joining a session always assigns a real player, so keep the
+-- parameter typed as a plain, non-nullable uuid.
 INSERT INTO session_players (session_id, player_id)
-VALUES ($1, $2)
+VALUES (sqlc.arg(session_id), sqlc.arg(player_id)::uuid)
 ON CONFLICT (session_id, player_id) DO UPDATE SET session_id = session_players.session_id
 RETURNING *;
 
@@ -59,10 +63,10 @@ RETURNING *;
 SELECT * FROM session_players WHERE id = $1;
 
 -- name: GetSessionPlayerBySessionAndPlayer :one
-SELECT * FROM session_players WHERE session_id = $1 AND player_id = $2;
+SELECT * FROM session_players WHERE session_id = sqlc.arg(session_id) AND player_id = sqlc.arg(player_id)::uuid;
 
 -- name: GetSessionPlayerBySessionAndPlayerForUpdate :one
-SELECT * FROM session_players WHERE session_id = $1 AND player_id = $2 FOR UPDATE;
+SELECT * FROM session_players WHERE session_id = sqlc.arg(session_id) AND player_id = sqlc.arg(player_id)::uuid FOR UPDATE;
 
 -- name: ListSessionPlayers :many
 SELECT * FROM session_players WHERE session_id = $1 ORDER BY created_at;

@@ -479,8 +479,9 @@ type Match struct {
 }
 
 type MatchPlayer struct {
+	ID           uuid.UUID     `json:"id"`
 	MatchID      uuid.UUID     `json:"match_id"`
-	PlayerID     uuid.UUID     `json:"player_id"`
+	PlayerID     pgtype.UUID   `json:"player_id"`
 	Team         MatchTeam     `json:"team"`
 	RatingBefore pgtype.Float8 `json:"rating_before"`
 	RatingAfter  pgtype.Float8 `json:"rating_after"`
@@ -536,7 +537,7 @@ type Session struct {
 type SessionPlayer struct {
 	ID                        uuid.UUID           `json:"id"`
 	SessionID                 uuid.UUID           `json:"session_id"`
-	PlayerID                  uuid.UUID           `json:"player_id"`
+	PlayerID                  pgtype.UUID         `json:"player_id"`
 	Status                    SessionPlayerStatus `json:"status"`
 	WaitingStartedAt          pgtype.Timestamptz  `json:"waiting_started_at"`
 	AccumulatedWaitingSeconds int64               `json:"accumulated_waiting_seconds"`

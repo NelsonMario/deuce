@@ -154,7 +154,7 @@ func TestIntegration_GenerateStartFinish_UpdatesRatingsAndReleasesCourt(t *testi
 	}
 	for _, p := range players {
 		if p.RatingAfter == nil || p.RatingChange == nil {
-			t.Fatalf("expected rating_after/rating_change to be set for player %s", p.PlayerID)
+			t.Fatalf("expected rating_after/rating_change to be set for player %s", *p.PlayerID)
 		}
 		if p.Team == match.TeamA && *p.RatingChange <= 0 {
 			t.Fatalf("expected team A (winner) to gain rating, got %v", *p.RatingChange)
@@ -228,10 +228,11 @@ func TestIntegration_ConcurrentGeneration_NeverDoubleBooksAPlayer(t *testing.T) 
 			t.Fatalf("expected 4 players in match, got %d", len(players))
 		}
 		for _, p := range players {
-			if seen[p.PlayerID] {
-				t.Fatalf("player %s was assigned to more than one match — concurrency safety violated", p.PlayerID)
+			playerID := *p.PlayerID
+			if seen[playerID] {
+				t.Fatalf("player %s was assigned to more than one match — concurrency safety violated", playerID)
 			}
-			seen[p.PlayerID] = true
+			seen[playerID] = true
 		}
 	}
 	if successCount != 2 {

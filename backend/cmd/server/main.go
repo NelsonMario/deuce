@@ -97,12 +97,13 @@ func main() {
 	handlers := handler.New(clubService, playerService, sessionService, matchService, logger)
 
 	app := httpapi.NewApp(httpapi.Deps{
-		Handlers:    handlers,
-		Hasher:      hasher,
-		Players:     playerRepo,
-		Logger:      logger,
-		CORSOrigins: cfg.CORSOrigins,
-		RateLimiter: rateLimiter,
+		Handlers:      handlers,
+		Hasher:        hasher,
+		Players:       playerRepo,
+		Logger:        logger,
+		CORSOrigins:   cfg.CORSOrigins,
+		RateLimiter:   rateLimiter,
+		CronAPISecret: cfg.CronAPISecret,
 	})
 
 	go func() {

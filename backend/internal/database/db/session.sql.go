@@ -14,7 +14,7 @@ import (
 const addSessionPlayer = `-- name: AddSessionPlayer :one
 
 INSERT INTO session_players (session_id, player_id)
-VALUES ($1, $2)
+VALUES ($1, $2::uuid)
 ON CONFLICT (session_id, player_id) DO UPDATE SET session_id = session_players.session_id
 RETURNING id, session_id, player_id, status, waiting_started_at, accumulated_waiting_seconds, matches_played, wins, losses, created_at, updated_at
 `
@@ -27,6 +27,10 @@ type AddSessionPlayerParams struct {
 // ============================================================
 // Session players
 // ============================================================
+// player_id is cast explicitly because the column is nullable (see
+// migration 000001 — cleared via ON DELETE SET NULL when a guest is later
+// deleted); joining a session always assigns a real player, so keep the
+// parameter typed as a plain, non-nullable uuid.
 func (q *Queries) AddSessionPlayer(ctx context.Context, arg AddSessionPlayerParams) (SessionPlayer, error) {
 	row := q.db.QueryRow(ctx, addSessionPlayer, arg.SessionID, arg.PlayerID)
 	var i SessionPlayer
@@ -209,7 +213,7 @@ func (q *Queries) GetSessionPlayer(ctx context.Context, id uuid.UUID) (SessionPl
 }
 
 const getSessionPlayerBySessionAndPlayer = `-- name: GetSessionPlayerBySessionAndPlayer :one
-SELECT id, session_id, player_id, status, waiting_started_at, accumulated_waiting_seconds, matches_played, wins, losses, created_at, updated_at FROM session_players WHERE session_id = $1 AND player_id = $2
+SELECT id, session_id, player_id, status, waiting_started_at, accumulated_waiting_seconds, matches_played, wins, losses, created_at, updated_at FROM session_players WHERE session_id = $1 AND player_id = $2::uuid
 `
 
 type GetSessionPlayerBySessionAndPlayerParams struct {
@@ -237,7 +241,7 @@ func (q *Queries) GetSessionPlayerBySessionAndPlayer(ctx context.Context, arg Ge
 }
 
 const getSessionPlayerBySessionAndPlayerForUpdate = `-- name: GetSessionPlayerBySessionAndPlayerForUpdate :one
-SELECT id, session_id, player_id, status, waiting_started_at, accumulated_waiting_seconds, matches_played, wins, losses, created_at, updated_at FROM session_players WHERE session_id = $1 AND player_id = $2 FOR UPDATE
+SELECT id, session_id, player_id, status, waiting_started_at, accumulated_waiting_seconds, matches_played, wins, losses, created_at, updated_at FROM session_players WHERE session_id = $1 AND player_id = $2::uuid FOR UPDATE
 `
 
 type GetSessionPlayerBySessionAndPlayerForUpdateParams struct {

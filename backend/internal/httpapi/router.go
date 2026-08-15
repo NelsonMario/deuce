@@ -23,6 +23,9 @@ type Deps struct {
 	// RateLimiter backs middleware.RateLimit. Defaults to ratelimit.NoopLimiter
 	// (no limiting) if left unset, e.g. in tests that don't care about it.
 	RateLimiter ratelimit.Limiter
+	// CronAPISecret gates POST /internal/cleanup-guests (see
+	// middleware.RequireCronSecret). Leave empty to disable the endpoint.
+	CronAPISecret string
 }
 
 func NewApp(d Deps) *fiber.App {
@@ -87,6 +90,9 @@ func NewApp(d Deps) *fiber.App {
 	players.Get("/:playerId", requireAuth, d.Handlers.GetPlayer)
 	players.Get("/:playerId/rating", requireAuth, d.Handlers.GetPlayerRating)
 	players.Get("/:playerId/matches", requireAuth, d.Handlers.ListPlayerMatches)
+
+	internal := app.Group("/internal")
+	internal.Post("/cleanup-guests", middleware.RequireCronSecret(d.CronAPISecret), d.Handlers.CleanupGuests)
 
 	return app
 }

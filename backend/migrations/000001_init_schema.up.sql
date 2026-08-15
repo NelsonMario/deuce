@@ -87,7 +87,10 @@ CREATE INDEX idx_sessions_club_id ON sessions(club_id);
 CREATE TABLE session_players (
     id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id                  uuid NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    player_id                   uuid NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    -- Nullable: a deleted guest (see internal/player cleanup) clears this via
+    -- ON DELETE SET NULL instead of losing the session roster slot's history
+    -- (status, match/win/loss counts) to a cascade.
+    player_id                   uuid REFERENCES players(id) ON DELETE SET NULL,
     status                      session_player_status NOT NULL DEFAULT 'WAITING',
     waiting_started_at          timestamptz NOT NULL DEFAULT now(),
     accumulated_waiting_seconds bigint NOT NULL DEFAULT 0,
@@ -135,13 +138,20 @@ CREATE INDEX idx_matches_session_status ON matches(session_id, status);
 CREATE INDEX idx_matches_court_id ON matches(court_id);
 
 CREATE TABLE match_players (
+    -- Own primary key rather than (match_id, player_id): player_id must be
+    -- nullable (see below), and a composite key can't include a nullable
+    -- column.
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     match_id      uuid NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-    player_id     uuid NOT NULL REFERENCES players(id),
+    -- Nullable: a deleted guest (see internal/player cleanup) clears this via
+    -- ON DELETE SET NULL instead of losing the match's history (team, rating
+    -- deltas) to a cascade or FK violation.
+    player_id     uuid REFERENCES players(id) ON DELETE SET NULL,
     team          match_team NOT NULL,
     rating_before double precision,
     rating_after  double precision,
     rating_change double precision,
-    PRIMARY KEY (match_id, player_id)
+    UNIQUE (match_id, player_id)
 );
 CREATE INDEX idx_match_players_match_id ON match_players(match_id);
 CREATE INDEX idx_match_players_player_id ON match_players(player_id);

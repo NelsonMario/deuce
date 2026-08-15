@@ -14,8 +14,8 @@ import (
 
 const addMatchPlayer = `-- name: AddMatchPlayer :one
 INSERT INTO match_players (match_id, player_id, team, rating_before)
-VALUES ($1, $2, $3, $4)
-RETURNING match_id, player_id, team, rating_before, rating_after, rating_change
+VALUES ($1, $2::uuid, $3, $4)
+RETURNING id, match_id, player_id, team, rating_before, rating_after, rating_change
 `
 
 type AddMatchPlayerParams struct {
@@ -25,6 +25,10 @@ type AddMatchPlayerParams struct {
 	RatingBefore pgtype.Float8 `json:"rating_before"`
 }
 
+// player_id is cast explicitly because the column is nullable (see
+// migration 000001 — cleared via ON DELETE SET NULL when a guest is later
+// deleted); a live match is always assigned a real player, so keep the
+// parameter typed as a plain, non-nullable uuid.
 func (q *Queries) AddMatchPlayer(ctx context.Context, arg AddMatchPlayerParams) (MatchPlayer, error) {
 	row := q.db.QueryRow(ctx, addMatchPlayer,
 		arg.MatchID,
@@ -34,6 +38,7 @@ func (q *Queries) AddMatchPlayer(ctx context.Context, arg AddMatchPlayerParams) 
 	)
 	var i MatchPlayer
 	err := row.Scan(
+		&i.ID,
 		&i.MatchID,
 		&i.PlayerID,
 		&i.Team,
@@ -140,7 +145,7 @@ func (q *Queries) GetMatchByID(ctx context.Context, id uuid.UUID) (Match, error)
 }
 
 const listMatchPlayers = `-- name: ListMatchPlayers :many
-SELECT match_id, player_id, team, rating_before, rating_after, rating_change FROM match_players WHERE match_id = $1
+SELECT id, match_id, player_id, team, rating_before, rating_after, rating_change FROM match_players WHERE match_id = $1
 `
 
 func (q *Queries) ListMatchPlayers(ctx context.Context, matchID uuid.UUID) ([]MatchPlayer, error) {
@@ -153,6 +158,7 @@ func (q *Queries) ListMatchPlayers(ctx context.Context, matchID uuid.UUID) ([]Ma
 	for rows.Next() {
 		var i MatchPlayer
 		if err := rows.Scan(
+			&i.ID,
 			&i.MatchID,
 			&i.PlayerID,
 			&i.Team,
@@ -233,27 +239,28 @@ func (q *Queries) LockMatchByID(ctx context.Context, id uuid.UUID) (Match, error
 
 const setMatchPlayerRatingAfter = `-- name: SetMatchPlayerRatingAfter :one
 UPDATE match_players
-SET rating_after = $3, rating_change = $4
-WHERE match_id = $1 AND player_id = $2
-RETURNING match_id, player_id, team, rating_before, rating_after, rating_change
+SET rating_after = $1, rating_change = $2
+WHERE match_id = $3 AND player_id = $4::uuid
+RETURNING id, match_id, player_id, team, rating_before, rating_after, rating_change
 `
 
 type SetMatchPlayerRatingAfterParams struct {
-	MatchID      uuid.UUID     `json:"match_id"`
-	PlayerID     uuid.UUID     `json:"player_id"`
 	RatingAfter  pgtype.Float8 `json:"rating_after"`
 	RatingChange pgtype.Float8 `json:"rating_change"`
+	MatchID      uuid.UUID     `json:"match_id"`
+	PlayerID     uuid.UUID     `json:"player_id"`
 }
 
 func (q *Queries) SetMatchPlayerRatingAfter(ctx context.Context, arg SetMatchPlayerRatingAfterParams) (MatchPlayer, error) {
 	row := q.db.QueryRow(ctx, setMatchPlayerRatingAfter,
-		arg.MatchID,
-		arg.PlayerID,
 		arg.RatingAfter,
 		arg.RatingChange,
+		arg.MatchID,
+		arg.PlayerID,
 	)
 	var i MatchPlayer
 	err := row.Scan(
+		&i.ID,
 		&i.MatchID,
 		&i.PlayerID,
 		&i.Team,

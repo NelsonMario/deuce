@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createGuestPlayer = `-- name: CreateGuestPlayer :one
@@ -103,6 +104,47 @@ func (q *Queries) CreatePlayerToken(ctx context.Context, arg CreatePlayerTokenPa
 	return i, err
 }
 
+const deleteStaleGuests = `-- name: DeleteStaleGuests :many
+DELETE FROM players
+WHERE is_guest
+  AND updated_at < $1::timestamptz
+  AND NOT EXISTS (
+    SELECT 1
+    FROM session_players sp
+    JOIN sessions s ON s.id = sp.session_id
+    WHERE sp.player_id = players.id
+      AND s.status IN ('NOT_STARTED', 'ACTIVE')
+  )
+RETURNING id
+`
+
+// match_players.player_id and session_players.player_id both ON DELETE SET
+// NULL (see migration 000001), so deleting the guest here preserves the
+// match/session history it took part in (score, team, rating deltas,
+// session roster slot) and only clears the link back to its identity.
+// rating_history, player_ratings, club_members and player_tokens still
+// cascade away — those are the guest's own state/ledger, not match/session
+// history, and the guest is gone anyway.
+func (q *Queries) DeleteStaleGuests(ctx context.Context, cutoff pgtype.Timestamptz) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, deleteStaleGuests, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPlayer = `-- name: GetPlayer :one
 SELECT id, display_name, gender, created_at, updated_at, is_guest FROM players WHERE id = $1
 `
@@ -192,19 +234,23 @@ const listMatchesByPlayer = `-- name: ListMatchesByPlayer :many
 SELECT m.id, m.session_id, m.court_id, m.format, m.status, m.started_at, m.ended_at, m.score_a, m.score_b, m.winner, m.created_at, m.updated_at
 FROM matches m
 JOIN match_players mp ON mp.match_id = m.id
-WHERE mp.player_id = $1
+WHERE mp.player_id = $1::uuid
 ORDER BY m.created_at DESC
-LIMIT $2 OFFSET $3
+LIMIT $3 OFFSET $2
 `
 
 type ListMatchesByPlayerParams struct {
-	PlayerID uuid.UUID `json:"player_id"`
-	Limit    int32     `json:"limit"`
-	Offset   int32     `json:"offset"`
+	PlayerID  uuid.UUID `json:"player_id"`
+	RowOffset int32     `json:"row_offset"`
+	RowLimit  int32     `json:"row_limit"`
 }
 
+// player_id is cast explicitly because match_players.player_id is nullable
+// (see migration 000001); listing a specific player's matches always looks
+// up a real player, so keep the parameter typed as a plain, non-nullable
+// uuid.
 func (q *Queries) ListMatchesByPlayer(ctx context.Context, arg ListMatchesByPlayerParams) ([]Match, error) {
-	rows, err := q.db.Query(ctx, listMatchesByPlayer, arg.PlayerID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listMatchesByPlayer, arg.PlayerID, arg.RowOffset, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

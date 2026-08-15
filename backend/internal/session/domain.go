@@ -89,9 +89,13 @@ type Session struct {
 }
 
 type Player struct {
-	ID                        uuid.UUID
-	SessionID                 uuid.UUID
-	PlayerID                  uuid.UUID
+	ID        uuid.UUID
+	SessionID uuid.UUID
+	// PlayerID is nil once the guest it belonged to has been deleted by the
+	// cleanup job (see internal/player) — the session_players row itself
+	// survives (ON DELETE SET NULL) so the roster slot's history stays, only
+	// the link back to the guest's identity is gone.
+	PlayerID                  *uuid.UUID
 	Status                    PlayerStatus
 	WaitingStartedAt          time.Time
 	AccumulatedWaitingSeconds int64

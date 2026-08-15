@@ -92,8 +92,8 @@ func TestIntegration_CreateSession_AddsHostAsWaitingPlayer(t *testing.T) {
 	if len(players) != 1 {
 		t.Fatalf("expected exactly one session player, got %d", len(players))
 	}
-	if players[0].PlayerID != host.ID {
-		t.Fatalf("expected host player %s, got %s", host.ID, players[0].PlayerID)
+	if players[0].PlayerID == nil || *players[0].PlayerID != host.ID {
+		t.Fatalf("expected host player %s, got %v", host.ID, players[0].PlayerID)
 	}
 	if players[0].Status != session.PlayerWaiting {
 		t.Fatalf("expected host to start WAITING, got %s", players[0].Status)

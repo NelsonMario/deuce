@@ -53,6 +53,26 @@ func matchGenLockKey(sessionID, courtID uuid.UUID) string {
 	return fmt.Sprintf("matchgen:session:%s:court:%s", sessionID, courtID)
 }
 
+// sessionPlayerID extracts the player id from a session_players row fetched
+// as a live matchmaking candidate (ListWaitingSessionPlayersForUpdate,
+// LockSessionPlayersByIDs). player_id is nullable at the schema level (see
+// migration 000001) so a deleted guest's historical row can survive, but
+// both call sites only ever select WAITING rows in an ACTIVE session — and
+// the guest cleanup job never deletes a guest still in a NOT_STARTED/ACTIVE
+// session (internal/player.CleanupStaleGuests) — so player_id is always
+// non-null here.
+func sessionPlayerID(sp db.SessionPlayer) uuid.UUID {
+	return uuid.UUID(sp.PlayerID.Bytes)
+}
+
+// matchPlayerID is sessionPlayerID's counterpart for match_players rows
+// fetched while a match is still PLAYING (FinishMatch): those were added by
+// AddMatchPlayer moments earlier for players in what is necessarily still
+// an ACTIVE session, so player_id is always non-null here too.
+func matchPlayerID(p db.MatchPlayer) uuid.UUID {
+	return uuid.UUID(p.PlayerID.Bytes)
+}
+
 func (s *Service) GetMatch(ctx context.Context, id uuid.UUID) (Match, error) {
 	m, err := s.reads.GetByID(ctx, id)
 	if err != nil {
@@ -118,24 +138,25 @@ func (s *Service) GenerateAutomatic(ctx context.Context, in GenerateInput) (Matc
 		candidates := make([]matchmaking.Candidate, 0, len(waiting))
 		bySessionPlayer := map[uuid.UUID]db.SessionPlayer{}
 		for _, sp := range waiting {
-			p, err := q.GetPlayer(ctx, sp.PlayerID)
+			playerID := sessionPlayerID(sp)
+			p, err := q.GetPlayer(ctx, playerID)
 			if err != nil {
-				return fmt.Errorf("get player %s: %w", sp.PlayerID, err)
+				return fmt.Errorf("get player %s: %w", playerID, err)
 			}
-			r, err := q.GetPlayerRating(ctx, sp.PlayerID)
+			r, err := q.GetPlayerRating(ctx, playerID)
 			if err != nil {
-				return fmt.Errorf("get player rating %s: %w", sp.PlayerID, err)
+				return fmt.Errorf("get player rating %s: %w", playerID, err)
 			}
 			waitSeconds := float64(sp.AccumulatedWaitingSeconds) + now.Sub(sp.WaitingStartedAt.Time).Seconds()
 			candidates = append(candidates, matchmaking.Candidate{
-				PlayerID:       sp.PlayerID.String(),
+				PlayerID:       playerID.String(),
 				Rating:         r.Rating,
 				Gender:         matchmaking.Gender(p.Gender),
 				Status:         matchmaking.StatusWaiting,
 				MatchesPlayed:  int(sp.MatchesPlayed),
 				WaitingSeconds: waitSeconds,
 			})
-			bySessionPlayer[sp.PlayerID] = sp
+			bySessionPlayer[playerID] = sp
 		}
 
 		proposal, err := matchmaking.GenerateMatch(candidates, matchmaking.Format(in.Format))
@@ -338,12 +359,13 @@ func (s *Service) ConfirmManual(ctx context.Context, in ConfirmManualInput) (Mat
 			if sp.Status != db.SessionPlayerStatusWAITING {
 				return apperr.PlayerNotEligible("player is not in WAITING state")
 			}
-			byPlayer[sp.PlayerID] = sp
-			r, err := q.GetPlayerRating(ctx, sp.PlayerID)
+			playerID := sessionPlayerID(sp)
+			byPlayer[playerID] = sp
+			r, err := q.GetPlayerRating(ctx, playerID)
 			if err != nil {
 				return fmt.Errorf("get rating: %w", err)
 			}
-			ratings[sp.PlayerID] = r.Rating
+			ratings[playerID] = r.Rating
 		}
 
 		genders := map[uuid.UUID]matchmaking.Gender{}
@@ -512,7 +534,7 @@ func (s *Service) FinishMatch(ctx context.Context, in FinishInput) (Match, error
 
 		playerIDs := make([]uuid.UUID, 0, 4)
 		for _, p := range players {
-			playerIDs = append(playerIDs, p.PlayerID)
+			playerIDs = append(playerIDs, matchPlayerID(p))
 		}
 		lockedRatings, err := q.LockPlayerRatingsByIDs(ctx, playerIDs)
 		if err != nil {
@@ -527,10 +549,10 @@ func (s *Service) FinishMatch(ctx context.Context, in FinishInput) (Match, error
 		ai, bi := 0, 0
 		for _, p := range players {
 			if p.Team == db.MatchTeamA {
-				teamA[ai] = p.PlayerID
+				teamA[ai] = matchPlayerID(p)
 				ai++
 			} else {
-				teamB[bi] = p.PlayerID
+				teamB[bi] = matchPlayerID(p)
 				bi++
 			}
 		}

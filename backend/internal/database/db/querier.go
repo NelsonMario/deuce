@@ -8,14 +8,23 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
 	AddClubMember(ctx context.Context, arg AddClubMemberParams) (ClubMember, error)
+	// player_id is cast explicitly because the column is nullable (see
+	// migration 000001 — cleared via ON DELETE SET NULL when a guest is later
+	// deleted); a live match is always assigned a real player, so keep the
+	// parameter typed as a plain, non-nullable uuid.
 	AddMatchPlayer(ctx context.Context, arg AddMatchPlayerParams) (MatchPlayer, error)
 	// ============================================================
 	// Session players
 	// ============================================================
+	// player_id is cast explicitly because the column is nullable (see
+	// migration 000001 — cleared via ON DELETE SET NULL when a guest is later
+	// deleted); joining a session always assigns a real player, so keep the
+	// parameter typed as a plain, non-nullable uuid.
 	AddSessionPlayer(ctx context.Context, arg AddSessionPlayerParams) (SessionPlayer, error)
 	// Read-only headcount used by the auto-fill background job to decide how
 	// many of a session's AVAILABLE courts it can fill this tick; the
@@ -33,6 +42,14 @@ type Querier interface {
 	CreatePlayerRating(ctx context.Context, arg CreatePlayerRatingParams) (PlayerRating, error)
 	CreatePlayerToken(ctx context.Context, arg CreatePlayerTokenParams) (PlayerToken, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
+	// match_players.player_id and session_players.player_id both ON DELETE SET
+	// NULL (see migration 000001), so deleting the guest here preserves the
+	// match/session history it took part in (score, team, rating deltas,
+	// session roster slot) and only clears the link back to its identity.
+	// rating_history, player_ratings, club_members and player_tokens still
+	// cascade away — those are the guest's own state/ledger, not match/session
+	// history, and the guest is gone anyway.
+	DeleteStaleGuests(ctx context.Context, cutoff pgtype.Timestamptz) ([]uuid.UUID, error)
 	EndSession(ctx context.Context, id uuid.UUID) (Session, error)
 	FinishMatch(ctx context.Context, arg FinishMatchParams) (Match, error)
 	GetClubByID(ctx context.Context, id uuid.UUID) (Club, error)
@@ -59,6 +76,10 @@ type Querier interface {
 	ListClubMembers(ctx context.Context, clubID uuid.UUID) ([]ClubMember, error)
 	ListCourtsBySession(ctx context.Context, sessionID uuid.UUID) ([]Court, error)
 	ListMatchPlayers(ctx context.Context, matchID uuid.UUID) ([]MatchPlayer, error)
+	// player_id is cast explicitly because match_players.player_id is nullable
+	// (see migration 000001); listing a specific player's matches always looks
+	// up a real player, so keep the parameter typed as a plain, non-nullable
+	// uuid.
 	ListMatchesByPlayer(ctx context.Context, arg ListMatchesByPlayerParams) ([]Match, error)
 	ListMatchesBySession(ctx context.Context, sessionID uuid.UUID) ([]Match, error)
 	ListRatingHistoryByPlayer(ctx context.Context, arg ListRatingHistoryByPlayerParams) ([]RatingHistory, error)

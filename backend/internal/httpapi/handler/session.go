@@ -170,21 +170,29 @@ func (h *Handlers) SetAutoFillEnabled(c *fiber.Ctx) error {
 }
 
 type SessionPlayerDTO struct {
-	ID             string `json:"id"`
-	PlayerID       string `json:"player_id"`
-	Status         string `json:"status"`
-	MatchesPlayed  int32  `json:"matches_played"`
-	Wins           int32  `json:"wins"`
-	Losses         int32  `json:"losses"`
-	WaitingSeconds int64  `json:"waiting_seconds"`
+	ID string `json:"id"`
+	// PlayerID is omitted once the guest it belonged to has been deleted by
+	// the cleanup job — the roster slot's history (status, match/win/loss
+	// counts) is preserved, only the identity link is gone.
+	PlayerID       *string `json:"player_id,omitempty"`
+	Status         string  `json:"status"`
+	MatchesPlayed  int32   `json:"matches_played"`
+	Wins           int32   `json:"wins"`
+	Losses         int32   `json:"losses"`
+	WaitingSeconds int64   `json:"waiting_seconds"`
 }
 
 func toSessionPlayerDTO(p session.Player) SessionPlayerDTO {
-	return SessionPlayerDTO{
-		ID: p.ID.String(), PlayerID: p.PlayerID.String(), Status: string(p.Status),
+	dto := SessionPlayerDTO{
+		ID: p.ID.String(), Status: string(p.Status),
 		MatchesPlayed: p.MatchesPlayed, Wins: p.Wins, Losses: p.Losses,
 		WaitingSeconds: int64(p.CurrentWaitingSeconds(time.Now())),
 	}
+	if p.PlayerID != nil {
+		id := p.PlayerID.String()
+		dto.PlayerID = &id
+	}
+	return dto
 }
 
 type CourtDTO struct {
@@ -359,7 +367,7 @@ func (h *Handlers) SetSessionPlayerStatus(c *fiber.Ctx) error {
 	if err != nil {
 		return HandleError(c, err)
 	}
-	if sp.PlayerID != principal.PlayerID {
+	if sp.PlayerID == nil || *sp.PlayerID != principal.PlayerID {
 		// Hosts may also manage player state (e.g. ending a no-show).
 		sess, err := h.Sessions.GetSession(c.UserContext(), sp.SessionID)
 		if err != nil {

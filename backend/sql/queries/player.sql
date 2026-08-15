@@ -60,9 +60,33 @@ ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: ListMatchesByPlayer :many
+-- player_id is cast explicitly because match_players.player_id is nullable
+-- (see migration 000001); listing a specific player's matches always looks
+-- up a real player, so keep the parameter typed as a plain, non-nullable
+-- uuid.
 SELECT m.*
 FROM matches m
 JOIN match_players mp ON mp.match_id = m.id
-WHERE mp.player_id = $1
+WHERE mp.player_id = sqlc.arg(player_id)::uuid
 ORDER BY m.created_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg(row_limit) OFFSET sqlc.arg(row_offset);
+
+-- name: DeleteStaleGuests :many
+-- match_players.player_id and session_players.player_id both ON DELETE SET
+-- NULL (see migration 000001), so deleting the guest here preserves the
+-- match/session history it took part in (score, team, rating deltas,
+-- session roster slot) and only clears the link back to its identity.
+-- rating_history, player_ratings, club_members and player_tokens still
+-- cascade away — those are the guest's own state/ledger, not match/session
+-- history, and the guest is gone anyway.
+DELETE FROM players
+WHERE is_guest
+  AND updated_at < sqlc.arg(cutoff)::timestamptz
+  AND NOT EXISTS (
+    SELECT 1
+    FROM session_players sp
+    JOIN sessions s ON s.id = sp.session_id
+    WHERE sp.player_id = players.id
+      AND s.status IN ('NOT_STARTED', 'ACTIVE')
+  )
+RETURNING id;

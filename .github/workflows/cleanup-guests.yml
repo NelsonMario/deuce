@@ -2,21 +2,23 @@ name: Cleanup guest players
 
 # Guest players (players.is_guest = true) are host-registered stand-ins for
 # people who didn't join via the invite link. They're temporary: this job
-# periodically deletes any guest not seen in RETENTION_DAYS so they don't
-# accumulate in Supabase. Guests are matched case-insensitively by name when
-# re-registered, and re-registering refreshes players.updated_at, so a guest
-# who keeps coming back is never treated as stale.
+# periodically calls the backend's internal cleanup endpoint to delete any
+# guest not seen in RETENTION_DAYS so they don't accumulate in Supabase.
+# Guests are matched case-insensitively by name when re-registered, and
+# re-registering refreshes players.updated_at, so a guest who keeps coming
+# back is never treated as stale.
 #
-# Required repo secret: SUPABASE_DATABASE_URL — the Supabase Postgres
-# connection string. Use the DIRECT connection (port 5432), not the
-# transaction pooler (port 6543), because this job runs an explicit
-# BEGIN/COMMIT transaction which the transaction pooler doesn't preserve.
-# e.g. postgresql://postgres.xxx:pass@aws-0-region.supabase.co:5432/postgres
-# Set it under Settings > Secrets and variables > Actions.
+# The endpoint (POST /internal/cleanup-guests) does the deletion itself —
+# this workflow has no direct database access and doesn't run any SQL.
+#
+# Required repo secrets:
+#   API_BASE_URL     — the backend's base URL, e.g. https://api.example.com
+#   CRON_API_SECRET  — must match the backend's CRON_API_SECRET env var
+# Set these under Settings > Secrets and variables > Actions.
 
 on:
   schedule:
-    - cron: '17 3 * * *' # daily, 03:17 UTC
+    - cron: '0 11 * * 5' # every friday, 18:00 UTC
   workflow_dispatch:
     inputs:
       retention_days:
@@ -28,47 +30,22 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Delete stale guest players
+      - name: Call guest cleanup endpoint
         env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          CRON_API_SECRET: ${{ secrets.CRON_API_SECRET }}
           RETENTION_DAYS: ${{ inputs.retention_days || '30' }}
         run: |
           set -euo pipefail
-          RETENTION_DAYS="${RETENTION_DAYS:-30}"
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
-          BEGIN;
-
-          -- match_players.player_id has no ON DELETE CASCADE, so remove those
-          -- rows first; rating_history, club_members, player_ratings,
-          -- session_players and player_tokens all cascade on player delete.
-          DELETE FROM match_players
-          WHERE player_id IN (
-            SELECT p.id
-            FROM players p
-            WHERE p.is_guest
-              AND p.updated_at < now() - make_interval(days => ${RETENTION_DAYS})
-              AND NOT EXISTS (
-                SELECT 1
-                FROM session_players sp
-                JOIN sessions s ON s.id = sp.session_id
-                WHERE sp.player_id = p.id
-                  AND s.status IN ('NOT_STARTED', 'ACTIVE')
-              )
-          );
-
-          DELETE FROM players
-          WHERE is_guest
-            AND updated_at < now() - make_interval(days => ${RETENTION_DAYS})
-            AND NOT EXISTS (
-              SELECT 1
-              FROM session_players sp
-              JOIN sessions s ON s.id = sp.session_id
-              WHERE sp.player_id = players.id
-                AND s.status IN ('NOT_STARTED', 'ACTIVE')
-            );
-
-          COMMIT;
-          SQL
+          response="$(curl -sS -w '\n%{http_code}' \
+            -X POST "$API_BASE_URL/internal/cleanup-guests" \
+            -H "X-Cron-Secret: $CRON_API_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "{\"retention_days\": $RETENTION_DAYS}")"
+          body="$(echo "$response" | head -n -1)"
+          status="$(echo "$response" | tail -n1)"
+          echo "$body"
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "cleanup endpoint returned HTTP $status" >&2
+            exit 1
+          fi
