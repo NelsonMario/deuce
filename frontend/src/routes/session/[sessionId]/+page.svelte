@@ -1165,10 +1165,17 @@
 	}
 
 	.link-text {
+		color: var(--accent);
 		max-width: 260px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		font-size: 0.5rem;
+		font-weight: 800;
+		letter-spacing: 0.08em;
+		color: var(--accent);
+		cursor: pointer;
+		transition: opacity 0.15s ease;
 	}
 
 	.section-title {
