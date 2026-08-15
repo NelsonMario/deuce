@@ -376,11 +376,6 @@ func (s *Service) ConfirmManual(ctx context.Context, in ConfirmManualInput) (Mat
 			}
 			genders[id] = matchmaking.Gender(p.Gender)
 		}
-		if in.Format == MixedDoubles {
-			if !validMixedTeam(genders[in.TeamA[0]], genders[in.TeamA[1]]) || !validMixedTeam(genders[in.TeamB[0]], genders[in.TeamB[1]]) {
-				return apperr.Validation("mixed doubles requires one male and one female per team")
-			}
-		}
 
 		court, err := q.LockAvailableCourtForUpdate(ctx, in.CourtID)
 		if err != nil {
