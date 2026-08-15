@@ -51,6 +51,7 @@ type Match struct {
 	ScoreA    *int32
 	ScoreB    *int32
 	Winner    *Team
+	Players   []uuid.UUID
 }
 
 type Player struct {

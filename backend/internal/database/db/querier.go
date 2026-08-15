@@ -61,6 +61,8 @@ type Querier interface {
 	GetPlayer(ctx context.Context, id uuid.UUID) (Player, error)
 	GetPlayerByTokenHash(ctx context.Context, tokenHash string) (Player, error)
 	GetPlayerRating(ctx context.Context, playerID uuid.UUID) (PlayerRating, error)
+	GetPlayerRatingsByIDs(ctx context.Context, playerIds []uuid.UUID) ([]PlayerRating, error)
+	GetPlayersByIDs(ctx context.Context, playerIds []uuid.UUID) ([]Player, error)
 	GetSessionByID(ctx context.Context, id uuid.UUID) (Session, error)
 	GetSessionPlayer(ctx context.Context, id uuid.UUID) (SessionPlayer, error)
 	GetSessionPlayerBySessionAndPlayer(ctx context.Context, arg GetSessionPlayerBySessionAndPlayerParams) (SessionPlayer, error)
@@ -76,6 +78,7 @@ type Querier interface {
 	ListClubMembers(ctx context.Context, clubID uuid.UUID) ([]ClubMember, error)
 	ListCourtsBySession(ctx context.Context, sessionID uuid.UUID) ([]Court, error)
 	ListMatchPlayers(ctx context.Context, matchID uuid.UUID) ([]MatchPlayer, error)
+	ListMatchPlayersBySession(ctx context.Context, sessionID uuid.UUID) ([]MatchPlayer, error)
 	// player_id is cast explicitly because match_players.player_id is nullable
 	// (see migration 000001); listing a specific player's matches always looks
 	// up a real player, so keep the parameter typed as a plain, non-nullable

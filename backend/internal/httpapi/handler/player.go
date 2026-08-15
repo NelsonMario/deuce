@@ -2,8 +2,10 @@ package handler
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 
 	"deuce/backend/internal/apperr"
 	"deuce/backend/internal/player"
@@ -20,6 +22,40 @@ func toPlayerDTO(p player.Player) PlayerDTO {
 	return PlayerDTO{ID: p.ID.String(), DisplayName: p.DisplayName, Gender: string(p.Gender), IsGuest: p.IsGuest}
 }
 
+type BatchIDsRequest struct {
+	IDs []string `json:"ids"`
+}
+
+func parseIDs(c *fiber.Ctx) ([]uuid.UUID, error) {
+	var rawIDs []string
+	if c.Method() == fiber.MethodPost && len(c.Body()) > 0 {
+		var req BatchIDsRequest
+		if err := c.BodyParser(&req); err != nil {
+			return nil, apperr.Validation("invalid request body")
+		}
+		rawIDs = req.IDs
+	} else {
+		q := c.Query("ids")
+		if q != "" {
+			rawIDs = strings.Split(q, ",")
+		}
+	}
+
+	uuids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		id, err := uuid.Parse(trimmed)
+		if err != nil {
+			return nil, apperr.Validation("invalid player UUID: " + trimmed)
+		}
+		uuids = append(uuids, id)
+	}
+	return uuids, nil
+}
+
 func (h *Handlers) GetPlayer(c *fiber.Ctx) error {
 	id, err := ParseUUIDParam(c, "playerId")
 	if err != nil {
@@ -30,6 +66,22 @@ func (h *Handlers) GetPlayer(c *fiber.Ctx) error {
 		return HandleError(c, err)
 	}
 	return c.JSON(toPlayerDTO(p))
+}
+
+func (h *Handlers) GetPlayersBatch(c *fiber.Ctx) error {
+	ids, err := parseIDs(c)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	players, err := h.Players.GetPlayersBatch(c.UserContext(), ids)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	dtos := make([]PlayerDTO, 0, len(players))
+	for _, p := range players {
+		dtos = append(dtos, toPlayerDTO(p))
+	}
+	return c.JSON(fiber.Map{"players": dtos})
 }
 
 type RatingDTO struct {
@@ -47,6 +99,22 @@ func (h *Handlers) GetPlayerRating(c *fiber.Ctx) error {
 		return HandleError(c, err)
 	}
 	return c.JSON(RatingDTO{PlayerID: r.PlayerID.String(), Rating: r.Rating})
+}
+
+func (h *Handlers) GetPlayerRatingsBatch(c *fiber.Ctx) error {
+	ids, err := parseIDs(c)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	ratings, err := h.Players.GetRatingsBatch(c.UserContext(), ids)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	dtos := make([]RatingDTO, 0, len(ratings))
+	for _, r := range ratings {
+		dtos = append(dtos, RatingDTO{PlayerID: r.PlayerID.String(), Rating: r.Rating})
+	}
+	return c.JSON(fiber.Map{"ratings": dtos})
 }
 
 type MatchSummaryDTO struct {

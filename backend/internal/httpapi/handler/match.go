@@ -8,16 +8,17 @@ import (
 )
 
 type MatchDTO struct {
-	ID        string  `json:"id"`
-	SessionID string  `json:"session_id"`
-	CourtID   string  `json:"court_id"`
-	Format    string  `json:"format"`
-	Status    string  `json:"status"`
-	StartedAt *string `json:"started_at,omitempty"`
-	EndedAt   *string `json:"ended_at,omitempty"`
-	ScoreA    *int32  `json:"score_a,omitempty"`
-	ScoreB    *int32  `json:"score_b,omitempty"`
-	Winner    *string `json:"winner,omitempty"`
+	ID        string   `json:"id"`
+	SessionID string   `json:"session_id"`
+	CourtID   string   `json:"court_id"`
+	Format    string   `json:"format"`
+	Status    string   `json:"status"`
+	StartedAt *string  `json:"started_at,omitempty"`
+	EndedAt   *string  `json:"ended_at,omitempty"`
+	ScoreA    *int32   `json:"score_a,omitempty"`
+	ScoreB    *int32   `json:"score_b,omitempty"`
+	Winner    *string  `json:"winner,omitempty"`
+	Players   []string `json:"players,omitempty"`
 }
 
 func toMatchDTO(m match.Match) MatchDTO {
@@ -36,6 +37,12 @@ func toMatchDTO(m match.Match) MatchDTO {
 	if m.Winner != nil {
 		v := string(*m.Winner)
 		dto.Winner = &v
+	}
+	if len(m.Players) > 0 {
+		dto.Players = make([]string, 0, len(m.Players))
+		for _, pid := range m.Players {
+			dto.Players = append(dto.Players, pid.String())
+		}
 	}
 	return dto
 }

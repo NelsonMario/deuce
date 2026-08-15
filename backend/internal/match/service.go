@@ -193,6 +193,12 @@ func (s *Service) GenerateAutomatic(ctx context.Context, in GenerateInput) (Matc
 		}
 
 		result = toMatch(m)
+		result.Players = []uuid.UUID{
+			uuid.MustParse(proposal.TeamA[0].PlayerID),
+			uuid.MustParse(proposal.TeamA[1].PlayerID),
+			uuid.MustParse(proposal.TeamB[0].PlayerID),
+			uuid.MustParse(proposal.TeamB[1].PlayerID),
+		}
 		return nil
 	})
 
@@ -413,6 +419,9 @@ func (s *Service) ConfirmManual(ctx context.Context, in ConfirmManualInput) (Mat
 		}
 
 		result = toMatch(m)
+		result.Players = []uuid.UUID{
+			in.TeamA[0], in.TeamA[1], in.TeamB[0], in.TeamB[1],
+		}
 		return nil
 	})
 
@@ -480,6 +489,12 @@ func (s *Service) StartMatch(ctx context.Context, matchID uuid.UUID) (Match, err
 			return fmt.Errorf("start match: %w", err)
 		}
 		result = toMatch(updated)
+		mp, _ := q.ListMatchPlayers(ctx, matchID)
+		for _, p := range mp {
+			if p.PlayerID.Valid {
+				result.Players = append(result.Players, uuid.UUID(p.PlayerID.Bytes))
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -648,6 +663,11 @@ func (s *Service) FinishMatch(ctx context.Context, in FinishInput) (Match, error
 		}
 
 		result = toMatch(updated)
+		for _, p := range players {
+			if p.PlayerID.Valid {
+				result.Players = append(result.Players, matchPlayerID(p))
+			}
+		}
 		return nil
 	})
 

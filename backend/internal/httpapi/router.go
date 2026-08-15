@@ -87,6 +87,8 @@ func NewApp(d Deps) *fiber.App {
 	matches.Post("/:matchId/finish", requireAuth, d.Handlers.FinishMatch)
 
 	players := v1.Group("/players")
+	players.Post("/batch", requireAuth, d.Handlers.GetPlayersBatch)
+	players.Post("/ratings/batch", requireAuth, d.Handlers.GetPlayerRatingsBatch)
 	players.Get("/:playerId", requireAuth, d.Handlers.GetPlayer)
 	players.Get("/:playerId/rating", requireAuth, d.Handlers.GetPlayerRating)
 	players.Get("/:playerId/matches", requireAuth, d.Handlers.ListPlayerMatches)

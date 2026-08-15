@@ -33,7 +33,7 @@ export class ApiError extends Error {
 	}
 }
 
-async function request<T>(
+async function request<T> (
 	path: string,
 	options: { method?: string; body?: unknown; token?: string } = {}
 ): Promise<T> {
@@ -81,14 +81,14 @@ async function request<T>(
 }
 
 export const api = {
-	createClub(payload: { club_name: string; host_display_name: string; host_gender: Gender }) {
+	createClub (payload: { club_name: string; host_display_name: string; host_gender: Gender }) {
 		return request<{ club: Club; host: PlayerAuth }>('/clubs/', {
 			method: 'POST',
 			body: { ...payload, device_id: getDeviceId() }
 		});
 	},
 
-	joinClub(
+	joinClub (
 		clubId: string,
 		payload: { join_code: string; display_name: string; gender: Gender }
 	) {
@@ -98,37 +98,37 @@ export const api = {
 		});
 	},
 
-	getClub(clubId: string, token: string) {
+	getClub (clubId: string, token: string) {
 		return request<Club>(`/clubs/${clubId}`, { token });
 	},
 
-	getMyClubRole(clubId: string, token: string) {
+	getMyClubRole (clubId: string, token: string) {
 		return request<{ role: ClubRole }>(`/clubs/${clubId}/me`, { token });
 	},
 
-	listClubMembers(clubId: string, token: string) {
+	listClubMembers (clubId: string, token: string) {
 		return request<{ members: Member[] }>(`/clubs/${clubId}/members`, { token });
 	},
 
-	promoteMember(clubId: string, playerId: string, token: string) {
+	promoteMember (clubId: string, playerId: string, token: string) {
 		return request<Member>(`/clubs/${clubId}/members/${playerId}/promote`, {
 			method: 'POST',
 			token
 		});
 	},
 
-	listClubSessions(clubId: string, token: string) {
+	listClubSessions (clubId: string, token: string) {
 		return request<{ sessions: Session[] }>(`/clubs/${clubId}/sessions`, { token });
 	},
 
-	createSession(
+	createSession (
 		token: string,
 		payload: { club_id: string; name?: string; assignment_mode?: AssignmentMode }
 	) {
 		return request<Session>('/sessions/', { method: 'POST', body: payload, token });
 	},
 
-	joinSession(
+	joinSession (
 		sessionId: string,
 		payload: { join_code: string; display_name: string; gender: Gender }
 	) {
@@ -138,19 +138,19 @@ export const api = {
 		);
 	},
 
-	getSession(sessionId: string, token: string) {
+	getSession (sessionId: string, token: string) {
 		return request<SessionDetail>(`/sessions/${sessionId}`, { token });
 	},
 
-	startSession(sessionId: string, token: string) {
+	startSession (sessionId: string, token: string) {
 		return request<Session>(`/sessions/${sessionId}/start`, { method: 'POST', token });
 	},
 
-	endSession(sessionId: string, token: string) {
+	endSession (sessionId: string, token: string) {
 		return request<Session>(`/sessions/${sessionId}/end`, { method: 'POST', token });
 	},
 
-	setAssignmentMode(sessionId: string, assignmentMode: AssignmentMode, token: string) {
+	setAssignmentMode (sessionId: string, assignmentMode: AssignmentMode, token: string) {
 		return request<Session>(`/sessions/${sessionId}/assignment-mode`, {
 			method: 'PATCH',
 			body: { assignment_mode: assignmentMode },
@@ -158,7 +158,7 @@ export const api = {
 		});
 	},
 
-	setAutoFillEnabled(sessionId: string, autoFillEnabled: boolean, token: string) {
+	setAutoFillEnabled (sessionId: string, autoFillEnabled: boolean, token: string) {
 		return request<Session>(`/sessions/${sessionId}/auto-fill`, {
 			method: 'PATCH',
 			body: { auto_fill_enabled: autoFillEnabled },
@@ -166,7 +166,7 @@ export const api = {
 		});
 	},
 
-	createCourt(sessionId: string, name: string, token: string) {
+	createCourt (sessionId: string, name: string, token: string) {
 		return request<Court>(`/sessions/${sessionId}/courts`, {
 			method: 'POST',
 			body: { name },
@@ -174,7 +174,7 @@ export const api = {
 		});
 	},
 
-	registerGuests(
+	registerGuests (
 		sessionId: string,
 		payload: { guests: { display_name: string; gender: Gender }[] },
 		token: string
@@ -186,7 +186,7 @@ export const api = {
 		});
 	},
 
-	generateMatch(
+	generateMatch (
 		sessionId: string,
 		payload: { court_id: string; format: MatchFormat },
 		token: string
@@ -198,7 +198,7 @@ export const api = {
 		});
 	},
 
-	recommendManualMatch(
+	recommendManualMatch (
 		sessionId: string,
 		payload: { player_ids: [string, string, string, string]; format: MatchFormat },
 		token: string
@@ -210,7 +210,7 @@ export const api = {
 		});
 	},
 
-	confirmManualMatch(
+	confirmManualMatch (
 		sessionId: string,
 		payload: {
 			court_id: string;
@@ -227,11 +227,11 @@ export const api = {
 		});
 	},
 
-	listSessionMatches(sessionId: string, token: string) {
+	listSessionMatches (sessionId: string, token: string) {
 		return request<{ matches: Match[] }>(`/sessions/${sessionId}/matches`, { token });
 	},
 
-	setSessionPlayerStatus(
+	setSessionPlayerStatus (
 		sessionPlayerId: string,
 		status: SessionPlayerStatus,
 		token: string
@@ -243,15 +243,15 @@ export const api = {
 		});
 	},
 
-	getMatch(matchId: string, token: string) {
+	getMatch (matchId: string, token: string) {
 		return request<Match>(`/matches/${matchId}`, { token });
 	},
 
-	startMatch(matchId: string, token: string) {
+	startMatch (matchId: string, token: string) {
 		return request<Match>(`/matches/${matchId}/start`, { method: 'POST', token });
 	},
 
-	finishMatch(matchId: string, payload: { score_a: number; score_b: number }, token: string) {
+	finishMatch (matchId: string, payload: { score_a: number; score_b: number }, token: string) {
 		return request<Match>(`/matches/${matchId}/finish`, {
 			method: 'POST',
 			body: payload,
@@ -259,15 +259,33 @@ export const api = {
 		});
 	},
 
-	getPlayer(playerId: string, token: string) {
+	getPlayer (playerId: string, token: string) {
 		return request<Player>(`/players/${playerId}`, { token });
 	},
 
-	getPlayerRating(playerId: string, token: string) {
+	getPlayersBatch (playerIds: string[], token: string) {
+		if (playerIds.length === 0) return Promise.resolve({ players: [] });
+		return request<{ players: Player[] }>(`/players/batch`, {
+			method: 'POST',
+			body: { ids: playerIds },
+			token
+		});
+	},
+
+	getPlayerRating (playerId: string, token: string) {
 		return request<Rating>(`/players/${playerId}/rating`, { token });
 	},
 
-	listPlayerMatches(
+	getPlayerRatingsBatch (playerIds: string[], token: string) {
+		if (playerIds.length === 0) return Promise.resolve({ ratings: [] });
+		return request<{ ratings: Rating[] }>(`/players/ratings/batch`, {
+			method: 'POST',
+			body: { ids: playerIds },
+			token
+		});
+	},
+
+	listPlayerMatches (
 		playerId: string,
 		token: string,
 		params: { limit?: number; offset?: number } = {}

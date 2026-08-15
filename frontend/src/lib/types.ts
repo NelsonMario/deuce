@@ -73,6 +73,7 @@ export interface Match {
 	score_a?: number | null;
 	score_b?: number | null;
 	winner?: Team | null;
+	players?: string[];
 }
 
 export interface MatchProposal {

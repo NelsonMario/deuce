@@ -22,11 +22,13 @@ type Repository interface {
 	Create(ctx context.Context, displayName string, gender Gender) (Player, error)
 	CreateGuest(ctx context.Context, displayName string, gender Gender) (Player, error)
 	GetByID(ctx context.Context, id uuid.UUID) (Player, error)
+	GetByIDs(ctx context.Context, ids []uuid.UUID) ([]Player, error)
 	UpdateProfile(ctx context.Context, id uuid.UUID, displayName string, gender Gender) (Player, error)
 	CreateToken(ctx context.Context, playerID uuid.UUID, tokenHash string) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (Player, error)
 	CreateRating(ctx context.Context, playerID uuid.UUID, rating float64) (Rating, error)
 	GetRating(ctx context.Context, playerID uuid.UUID) (Rating, error)
+	GetRatingsByIDs(ctx context.Context, ids []uuid.UUID) ([]Rating, error)
 	ListRatingHistory(ctx context.Context, playerID uuid.UUID, limit, offset int32) ([]RatingHistoryEntry, error)
 	ListMatches(ctx context.Context, playerID uuid.UUID, limit, offset int32) ([]MatchSummary, error)
 	// CleanupStaleGuests deletes guest players not updated since cutoff and
@@ -82,6 +84,18 @@ func (r *pgRepository) GetByID(ctx context.Context, id uuid.UUID) (Player, error
 		return Player{}, fmt.Errorf("get player: %w", err)
 	}
 	return toPlayer(row), nil
+}
+
+func (r *pgRepository) GetByIDs(ctx context.Context, ids []uuid.UUID) ([]Player, error) {
+	rows, err := r.q().GetPlayersByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get players by ids: %w", err)
+	}
+	players := make([]Player, 0, len(rows))
+	for _, row := range rows {
+		players = append(players, toPlayer(row))
+	}
+	return players, nil
 }
 
 func (r *pgRepository) UpdateProfile(ctx context.Context, id uuid.UUID, displayName string, gender Gender) (Player, error) {
@@ -141,6 +155,18 @@ func (r *pgRepository) GetRating(ctx context.Context, playerID uuid.UUID) (Ratin
 		return Rating{}, fmt.Errorf("get player rating: %w", err)
 	}
 	return toRating(row), nil
+}
+
+func (r *pgRepository) GetRatingsByIDs(ctx context.Context, ids []uuid.UUID) ([]Rating, error) {
+	rows, err := r.q().GetPlayerRatingsByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get player ratings by ids: %w", err)
+	}
+	ratings := make([]Rating, 0, len(rows))
+	for _, row := range rows {
+		ratings = append(ratings, toRating(row))
+	}
+	return ratings, nil
 }
 
 func (r *pgRepository) ListRatingHistory(ctx context.Context, playerID uuid.UUID, limit, offset int32) ([]RatingHistoryEntry, error) {

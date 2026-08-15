@@ -195,6 +195,63 @@ func (q *Queries) GetPlayerRating(ctx context.Context, playerID uuid.UUID) (Play
 	return i, err
 }
 
+const getPlayerRatingsByIDs = `-- name: GetPlayerRatingsByIDs :many
+SELECT player_id, rating, updated_at FROM player_ratings
+WHERE player_id = ANY($1::uuid[])
+`
+
+func (q *Queries) GetPlayerRatingsByIDs(ctx context.Context, playerIds []uuid.UUID) ([]PlayerRating, error) {
+	rows, err := q.db.Query(ctx, getPlayerRatingsByIDs, playerIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PlayerRating{}
+	for rows.Next() {
+		var i PlayerRating
+		if err := rows.Scan(&i.PlayerID, &i.Rating, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPlayersByIDs = `-- name: GetPlayersByIDs :many
+SELECT id, display_name, gender, created_at, updated_at, is_guest FROM players
+WHERE id = ANY($1::uuid[])
+`
+
+func (q *Queries) GetPlayersByIDs(ctx context.Context, playerIds []uuid.UUID) ([]Player, error) {
+	rows, err := q.db.Query(ctx, getPlayersByIDs, playerIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Player{}
+	for rows.Next() {
+		var i Player
+		if err := rows.Scan(
+			&i.ID,
+			&i.DisplayName,
+			&i.Gender,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.IsGuest,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertRatingHistory = `-- name: InsertRatingHistory :one
 INSERT INTO rating_history (player_id, match_id, rating_before, rating_after, rating_change)
 VALUES ($1, $2, $3, $4, $5)

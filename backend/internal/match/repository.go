@@ -24,6 +24,7 @@ type ReadRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (Match, error)
 	ListBySession(ctx context.Context, sessionID uuid.UUID) ([]Match, error)
 	ListPlayers(ctx context.Context, matchID uuid.UUID) ([]Player, error)
+	ListPlayersBySession(ctx context.Context, sessionID uuid.UUID) (map[uuid.UUID][]Player, error)
 }
 
 type pgReadRepository struct {
@@ -42,7 +43,18 @@ func (r *pgReadRepository) GetByID(ctx context.Context, id uuid.UUID) (Match, er
 		}
 		return Match{}, fmt.Errorf("get match: %w", err)
 	}
-	return toMatch(row), nil
+	m := toMatch(row)
+	players, err := r.ListPlayers(ctx, id)
+	if err == nil {
+		pIDs := make([]uuid.UUID, 0, len(players))
+		for _, p := range players {
+			if p.PlayerID != nil {
+				pIDs = append(pIDs, *p.PlayerID)
+			}
+		}
+		m.Players = pIDs
+	}
+	return m, nil
 }
 
 func (r *pgReadRepository) ListBySession(ctx context.Context, sessionID uuid.UUID) ([]Match, error) {
@@ -50,9 +62,20 @@ func (r *pgReadRepository) ListBySession(ctx context.Context, sessionID uuid.UUI
 	if err != nil {
 		return nil, fmt.Errorf("list matches: %w", err)
 	}
+	playerMap, _ := r.ListPlayersBySession(ctx, sessionID)
 	matches := make([]Match, 0, len(rows))
 	for _, row := range rows {
-		matches = append(matches, toMatch(row))
+		m := toMatch(row)
+		if players, ok := playerMap[m.ID]; ok {
+			pIDs := make([]uuid.UUID, 0, len(players))
+			for _, p := range players {
+				if p.PlayerID != nil {
+					pIDs = append(pIDs, *p.PlayerID)
+				}
+			}
+			m.Players = pIDs
+		}
+		matches = append(matches, m)
 	}
 	return matches, nil
 }
@@ -67,6 +90,19 @@ func (r *pgReadRepository) ListPlayers(ctx context.Context, matchID uuid.UUID) (
 		players = append(players, toPlayer(row))
 	}
 	return players, nil
+}
+
+func (r *pgReadRepository) ListPlayersBySession(ctx context.Context, sessionID uuid.UUID) (map[uuid.UUID][]Player, error) {
+	rows, err := r.q.ListMatchPlayersBySession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list session match players: %w", err)
+	}
+	out := make(map[uuid.UUID][]Player)
+	for _, row := range rows {
+		p := toPlayer(row)
+		out[row.MatchID] = append(out[row.MatchID], p)
+	}
+	return out, nil
 }
 
 func toMatch(row db.Match) Match {

@@ -143,7 +143,7 @@ func GenerateMatch(pool []Candidate, format Format) (*Proposal, error) {
 				females++
 			}
 		}
-		if len(eligible) < 4 {
+		if len(eligible) < 4 || males < 1 || females < 1 {
 			return nil, ErrInsufficientPlayers
 		}
 		sortByPriority(eligible)

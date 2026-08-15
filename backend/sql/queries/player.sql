@@ -71,6 +71,14 @@ WHERE mp.player_id = sqlc.arg(player_id)::uuid
 ORDER BY m.created_at DESC
 LIMIT sqlc.arg(row_limit) OFFSET sqlc.arg(row_offset);
 
+-- name: GetPlayersByIDs :many
+SELECT * FROM players
+WHERE id = ANY(sqlc.arg(player_ids)::uuid[]);
+
+-- name: GetPlayerRatingsByIDs :many
+SELECT * FROM player_ratings
+WHERE player_id = ANY(sqlc.arg(player_ids)::uuid[]);
+
 -- name: DeleteStaleGuests :many
 -- match_players.player_id and session_players.player_id both ON DELETE SET
 -- NULL (see migration 000001), so deleting the guest here preserves the
@@ -90,3 +98,4 @@ WHERE is_guest
       AND s.status IN ('NOT_STARTED', 'ACTIVE')
   )
 RETURNING id;
+

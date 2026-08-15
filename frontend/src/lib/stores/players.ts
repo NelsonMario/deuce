@@ -6,27 +6,38 @@ export const playerCache = writable<Record<string, Player>>({});
 
 const inFlight = new Set<string>();
 
-export function cachedPlayer(playerId: string): Player | undefined {
+export function cachedPlayer (playerId: string): Player | undefined {
 	return get(playerCache)[playerId];
 }
 
-export async function ensurePlayer(playerId: string, token: string): Promise<Player | undefined> {
-	if (get(playerCache)[playerId] || inFlight.has(playerId)) return get(playerCache)[playerId];
-	inFlight.add(playerId);
-	try {
-		const player = await api.getPlayer(playerId, token);
-		playerCache.update((cache) => ({ ...cache, [playerId]: player }));
-		return player;
-	} catch {
-		return undefined;
-	} finally {
-		inFlight.delete(playerId);
-	}
+export async function ensurePlayer (playerId: string, token: string): Promise<Player | undefined> {
+	if (get(playerCache)[playerId]) return get(playerCache)[playerId];
+	await ensurePlayers([playerId], token);
+	return get(playerCache)[playerId];
 }
 
-export function ensurePlayers(playerIds: string[], token: string) {
-	for (const id of playerIds) {
-		void ensurePlayer(id, token);
+export async function ensurePlayers (playerIds: string[], token: string): Promise<void> {
+	const cache = get(playerCache);
+	const toFetch = Array.from(new Set(playerIds)).filter((id) => id && !cache[id] && !inFlight.has(id));
+	if (toFetch.length === 0) return;
+
+	for (const id of toFetch) {
+		inFlight.add(id);
+	}
+
+	try {
+		const res = await api.getPlayersBatch(toFetch, token);
+		const newEntries: Record<string, Player> = {};
+		for (const p of res.players) {
+			newEntries[p.id] = p;
+		}
+		playerCache.update((c) => ({ ...c, ...newEntries }));
+	} catch {
+		// Ignore errors for batch pre-fetch
+	} finally {
+		for (const id of toFetch) {
+			inFlight.delete(id);
+		}
 	}
 }
 
@@ -35,23 +46,40 @@ const ratingInFlight = new Set<string>();
 const ratingFetchedAt = new Map<string, number>();
 const RATING_TTL_MS = 20000;
 
-// Ratings change (a match finishing) far less often than a session polls, so
-// we cap how often any one player's rating is refetched — otherwise a
-// manual-match builder with 8 waiting players refetches all 8 every poll
-// tick, easily blowing past the backend's per-IP rate limit on its own.
-export async function ensureRating(playerId: string, token: string): Promise<number | undefined> {
+export async function ensureRating (playerId: string, token: string): Promise<number | undefined> {
 	const lastFetch = ratingFetchedAt.get(playerId);
 	if (lastFetch && Date.now() - lastFetch < RATING_TTL_MS) return get(ratingCache)[playerId];
-	if (ratingInFlight.has(playerId)) return get(ratingCache)[playerId];
-	ratingInFlight.add(playerId);
+	await ensureRatings([playerId], token);
+	return get(ratingCache)[playerId];
+}
+
+export async function ensureRatings (playerIds: string[], token: string): Promise<void> {
+	const now = Date.now();
+	const cache = get(ratingCache);
+	const toFetch = Array.from(new Set(playerIds)).filter((id) => {
+		if (!id || ratingInFlight.has(id)) return false;
+		const lastFetch = ratingFetchedAt.get(id);
+		return !lastFetch || (now - lastFetch >= RATING_TTL_MS);
+	});
+	if (toFetch.length === 0) return;
+
+	for (const id of toFetch) {
+		ratingInFlight.add(id);
+	}
+
 	try {
-		const rating = await api.getPlayerRating(playerId, token);
-		ratingCache.update((cache) => ({ ...cache, [playerId]: rating.rating }));
-		ratingFetchedAt.set(playerId, Date.now());
-		return rating.rating;
+		const res = await api.getPlayerRatingsBatch(toFetch, token);
+		const newEntries: Record<string, number> = {};
+		for (const r of res.ratings) {
+			newEntries[r.player_id] = r.rating;
+			ratingFetchedAt.set(r.player_id, now);
+		}
+		ratingCache.update((c) => ({ ...c, ...newEntries }));
 	} catch {
-		return undefined;
+		// Ignore errors for batch rating fetch
 	} finally {
-		ratingInFlight.delete(playerId);
+		for (const id of toFetch) {
+			ratingInFlight.delete(id);
+		}
 	}
 }

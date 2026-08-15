@@ -29,6 +29,17 @@ func (s *Service) GetPlayer(ctx context.Context, id uuid.UUID) (Player, error) {
 	return p, nil
 }
 
+func (s *Service) GetPlayersBatch(ctx context.Context, ids []uuid.UUID) ([]Player, error) {
+	if len(ids) == 0 {
+		return []Player{}, nil
+	}
+	players, err := s.repo.GetByIDs(ctx, ids)
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+	return players, nil
+}
+
 func (s *Service) GetRating(ctx context.Context, id uuid.UUID) (Rating, error) {
 	r, err := s.repo.GetRating(ctx, id)
 	if err != nil {
@@ -38,6 +49,17 @@ func (s *Service) GetRating(ctx context.Context, id uuid.UUID) (Rating, error) {
 		return Rating{}, apperr.Internal(err)
 	}
 	return r, nil
+}
+
+func (s *Service) GetRatingsBatch(ctx context.Context, ids []uuid.UUID) ([]Rating, error) {
+	if len(ids) == 0 {
+		return []Rating{}, nil
+	}
+	ratings, err := s.repo.GetRatingsByIDs(ctx, ids)
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+	return ratings, nil
 }
 
 func (s *Service) ListMatches(ctx context.Context, id uuid.UUID, limit, offset int32) ([]MatchSummary, error) {

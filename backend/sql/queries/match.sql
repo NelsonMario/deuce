@@ -34,10 +34,19 @@ VALUES (sqlc.arg(match_id), sqlc.arg(player_id)::uuid, sqlc.arg(team), sqlc.arg(
 RETURNING *;
 
 -- name: ListMatchPlayers :many
-SELECT * FROM match_players WHERE match_id = $1;
+SELECT * FROM match_players WHERE match_id = $1 ORDER BY team ASC;
+
+-- name: ListMatchPlayersBySession :many
+SELECT mp.*
+FROM match_players mp
+JOIN matches m ON mp.match_id = m.id
+WHERE m.session_id = $1
+ORDER BY mp.match_id, mp.team ASC;
+
 
 -- name: SetMatchPlayerRatingAfter :one
 UPDATE match_players
 SET rating_after = sqlc.arg(rating_after), rating_change = sqlc.arg(rating_change)
 WHERE match_id = sqlc.arg(match_id) AND player_id = sqlc.arg(player_id)::uuid
 RETURNING *;
+

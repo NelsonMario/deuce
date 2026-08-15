@@ -250,3 +250,31 @@ func TestIntegration_ConcurrentGeneration_NeverDoubleBooksAPlayer(t *testing.T) 
 		t.Fatal("expected error: court1 already PLAYING")
 	}
 }
+
+func TestIntegration_ListMatchesBySession_EmbedsPlayers(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	sessionID, courtID := f.seedSessionWithPlayers(t, 4, 0)
+	m, err := f.matches.GenerateAutomatic(ctx, match.GenerateInput{
+		SessionID: sessionID, CourtID: courtID, Format: match.MenDoubles,
+	})
+	if err != nil {
+		t.Fatalf("generate match: %v", err)
+	}
+
+	if len(m.Players) != 4 {
+		t.Fatalf("expected generated match to have 4 embedded players, got %d", len(m.Players))
+	}
+
+	matches, err := f.matches.ListBySession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("list matches by session: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match in session, got %d", len(matches))
+	}
+	if len(matches[0].Players) != 4 {
+		t.Fatalf("expected listed session match to embed 4 players, got %d", len(matches[0].Players))
+	}
+}

@@ -145,11 +145,47 @@ func (q *Queries) GetMatchByID(ctx context.Context, id uuid.UUID) (Match, error)
 }
 
 const listMatchPlayers = `-- name: ListMatchPlayers :many
-SELECT id, match_id, player_id, team, rating_before, rating_after, rating_change FROM match_players WHERE match_id = $1
+SELECT id, match_id, player_id, team, rating_before, rating_after, rating_change FROM match_players WHERE match_id = $1 ORDER BY team ASC
 `
 
 func (q *Queries) ListMatchPlayers(ctx context.Context, matchID uuid.UUID) ([]MatchPlayer, error) {
 	rows, err := q.db.Query(ctx, listMatchPlayers, matchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MatchPlayer{}
+	for rows.Next() {
+		var i MatchPlayer
+		if err := rows.Scan(
+			&i.ID,
+			&i.MatchID,
+			&i.PlayerID,
+			&i.Team,
+			&i.RatingBefore,
+			&i.RatingAfter,
+			&i.RatingChange,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMatchPlayersBySession = `-- name: ListMatchPlayersBySession :many
+SELECT mp.id, mp.match_id, mp.player_id, mp.team, mp.rating_before, mp.rating_after, mp.rating_change
+FROM match_players mp
+JOIN matches m ON mp.match_id = m.id
+WHERE m.session_id = $1
+ORDER BY mp.match_id, mp.team ASC
+`
+
+func (q *Queries) ListMatchPlayersBySession(ctx context.Context, sessionID uuid.UUID) ([]MatchPlayer, error) {
+	rows, err := q.db.Query(ctx, listMatchPlayersBySession, sessionID)
 	if err != nil {
 		return nil, err
 	}
