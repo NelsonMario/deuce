@@ -1035,23 +1035,10 @@
 					{#each courts as court (court.id)}
 						{@const activeMatch = courtActiveMatch(court.id)}
 						{#if activeMatch}
-							<a
-								href="/match/{activeMatch.id}?session={sessionId}"
-								class="card card-tight court-card court-card-link"
-								title="Click to view active match"
-							>
-								<div class="spread">
-									<strong>{court.name}</strong>
-									<span class="badge dot badge-live">PLAYING →</span>
-								</div>
-								<div class="occupants">
-									{#if courtOccupants[court.id] && courtOccupants[court.id].length}
-										{#each courtOccupants[court.id] as pid}
-											<span class="pick-chip">{name(pid)}</span>
-										{/each}
-									{/if}
-								</div>
-							</a>
+							<div class="spread">
+								<strong>{court.name}</strong>
+								<span class="badge dot badge-live">PLAYING →</span>
+							</div>
 						{:else}
 							<div class="card card-tight court-card">
 								<div class="spread">
@@ -1059,13 +1046,7 @@
 									<span class="badge dot">{statusLabel(court.status)}</span>
 								</div>
 								<div class="occupants">
-									{#if courtOccupants[court.id] && courtOccupants[court.id].length}
-										{#each courtOccupants[court.id] as pid}
-											<span class="pick-chip">{name(pid)}</span>
-										{/each}
-									{:else}
-										<span class="faint small">Court available</span>
-									{/if}
+									<span class="faint small">Court available</span>
 								</div>
 							</div>
 						{/if}
@@ -1735,7 +1716,7 @@
 										Need at least 4 waiting players ({waiting.length}
 										now).
 									</p>
-								{:else if session.assignment_mode === "AUTOMATIC"}
+								{:else if session.assignment_mode === "AUTOMATIC" && session.auto_fill_enabled}
 									<div class="stack">
 										<div class="row wrap">
 											<select

@@ -96,6 +96,12 @@ func (h *Handlers) GenerateMatch(c *fiber.Ctx) error {
 	if err != nil {
 		return HandleError(c, err)
 	}
+
+	m, err = h.Matches.StartMatch(c.UserContext(), m.ID)
+	if err != nil {
+		return HandleError(c, err)
+	}
+
 	return c.Status(fiber.StatusCreated).JSON(toMatchDTO(m))
 }
 
@@ -210,6 +216,12 @@ func (h *Handlers) ConfirmManualMatch(c *fiber.Ctx) error {
 	if err != nil {
 		return HandleError(c, err)
 	}
+
+	m, err = h.Matches.StartMatch(c.UserContext(), m.ID)
+	if err != nil {
+		return HandleError(c, err)
+	}
+
 	return c.Status(fiber.StatusCreated).JSON(toMatchDTO(m))
 }
 
