@@ -767,7 +767,13 @@
 			? `${window.location.origin}/join?session=${sessionId}&code=${club.joinCode}`
 			: "",
 	);
+	let clubInviteLink = $derived(
+		club && typeof window !== "undefined"
+			? `${window.location.origin}/club/${club.id}`
+			: "",
+	);
 	let linkCopied = $state(false);
+	let clubLinkCopied = $state(false);
 	let clubCodeCopied = $state(false);
 
 	async function copyInvite() {
@@ -777,6 +783,16 @@
 			setTimeout(() => (linkCopied = false), 1600);
 		} catch {
 			toast.info(inviteLink);
+		}
+	}
+
+	async function copyClubInvite() {
+		try {
+			await navigator.clipboard.writeText(clubInviteLink);
+			clubLinkCopied = true;
+			setTimeout(() => (clubLinkCopied = false), 1600);
+		} catch {
+			toast.info(clubInviteLink);
 		}
 	}
 
@@ -1353,16 +1369,34 @@
 					{#if activeTool === "invite"}
 						<div class="stack">
 							{#if club}
+								<div class="card card-tight card-pop">
+									<div class="spread" style="margin-bottom:4px;">
+										<strong style="font-size:0.85rem;">Permanent Club Link</strong>
+										<span class="badge badge-accent">Best for members</span>
+									</div>
+									<p class="muted small">
+										Members bookmark this link to view current &amp; future sessions anytime.
+									</p>
+									<button
+										type="button"
+										class="link-text mono"
+										class:copied={clubLinkCopied}
+										use:longpress={copyClubInvite}
+										aria-label="Hold to copy permanent club link"
+									>
+										{clubInviteLink}
+									</button>
+								</div>
 								<div class="card card-tight">
 									<p class="muted small">
-										Invite link · hold to copy
+										Direct session link · hold to copy
 									</p>
 									<button
 										type="button"
 										class="link-text mono"
 										class:copied={linkCopied}
 										use:longpress={copyInvite}
-										aria-label="Hold to copy invite link"
+										aria-label="Hold to copy session link"
 									>
 										{inviteLink}
 									</button>

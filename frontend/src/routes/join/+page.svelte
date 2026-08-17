@@ -16,6 +16,13 @@
 
 	let sessionId = $derived(sessionLink.match(UUID_RE)?.[0] ?? '');
 
+	$effect(() => {
+		if (sessionLink.includes('/club/')) {
+			const clubId = sessionLink.match(UUID_RE)?.[0];
+			if (clubId) void goto(`/club/${clubId}`);
+		}
+	});
+
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();
 		if (!sessionId || !joinCode.trim() || !displayName.trim()) return;
