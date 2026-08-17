@@ -1887,14 +1887,20 @@
 
 		{#if editRatingPlayerId}
 			<div
-				class="hud-backdrop"
+				class="modal-backdrop"
 				onclick={() => (editRatingPlayerId = null)}
 				role="presentation"
 			></div>
 			<div class="card card-pop modal-dialog rise-in">
-				<h3 style="margin-bottom: 12px;">
-					Update Rating &amp; Rank for {name(editRatingPlayerId)}
-				</h3>
+				<div class="spread" style="margin-bottom: 14px;">
+					<h3>Update Rating for {name(editRatingPlayerId)}</h3>
+					<button
+						type="button"
+						class="link-btn"
+						onclick={() => (editRatingPlayerId = null)}
+						title="Close">✕</button
+					>
+				</div>
 				<div class="field">
 					<label for="rank-selector">Select Rank Category</label>
 					<select
@@ -1919,13 +1925,15 @@
 						max="3000"
 					/>
 				</div>
-				<div class="row spread" style="margin-top: 16px;">
+				<div class="row spread modal-actions" style="margin-top: 18px; gap: 10px;">
 					<button
 						class="btn btn-ghost"
+						style="flex: 1;"
 						onclick={() => (editRatingPlayerId = null)}>Cancel</button
 					>
 					<button
 						class="btn btn-primary"
+						style="flex: 1;"
 						onclick={savePlayerRating}
 						disabled={savingRating}
 					>
@@ -2317,15 +2325,28 @@
 		transform: translateY(-2px);
 		box-shadow: var(--shadow-sm);
 	}
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.75);
+		backdrop-filter: blur(4px);
+		z-index: 199;
+	}
 	.modal-dialog {
 		position: fixed;
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
-		z-index: 100;
-		width: 90%;
-		max-width: 440px;
+		z-index: 200;
+		width: calc(100% - 32px);
+		max-width: 420px;
+		max-height: calc(100vh - 40px);
+		overflow-y: auto;
 		background: var(--bg-elevated);
+		border: 2px solid var(--accent);
+		box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85), var(--shadow);
+		padding: 22px;
+		border-radius: var(--radius-lg);
 	}
 	.mini-replace-select {
 		padding: 4px 8px;
@@ -2335,6 +2356,19 @@
 	}
 	.gap-xs {
 		gap: 6px;
+	}
+
+	@media (max-width: 520px) {
+		.modal-dialog {
+			top: auto;
+			bottom: 16px;
+			left: 16px;
+			right: 16px;
+			width: auto;
+			transform: none;
+			max-height: 85vh;
+			padding: 18px;
+		}
 	}
 
 	@media (max-width: 720px) {
