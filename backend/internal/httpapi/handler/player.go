@@ -101,6 +101,26 @@ func (h *Handlers) GetPlayerRating(c *fiber.Ctx) error {
 	return c.JSON(RatingDTO{PlayerID: r.PlayerID.String(), Rating: r.Rating})
 }
 
+type UpdatePlayerRatingRequest struct {
+	Rating float64 `json:"rating" validate:"required,gt=0"`
+}
+
+func (h *Handlers) UpdatePlayerRating(c *fiber.Ctx) error {
+	id, err := ParseUUIDParam(c, "playerId")
+	if err != nil {
+		return HandleError(c, err)
+	}
+	var req UpdatePlayerRatingRequest
+	if err := BindAndValidate(c, &req); err != nil {
+		return HandleError(c, err)
+	}
+	r, err := h.Players.UpdateRating(c.UserContext(), id, req.Rating)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	return c.JSON(RatingDTO{PlayerID: r.PlayerID.String(), Rating: r.Rating})
+}
+
 func (h *Handlers) GetPlayerRatingsBatch(c *fiber.Ctx) error {
 	ids, err := parseIDs(c)
 	if err != nil {

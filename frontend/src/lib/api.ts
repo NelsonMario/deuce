@@ -276,6 +276,26 @@ export const api = {
 		return request<Rating>(`/players/${playerId}/rating`, { token });
 	},
 
+	updatePlayerRating (playerId: string, rating: number, token: string) {
+		return request<Rating>(`/players/${playerId}/rating`, {
+			method: 'PUT',
+			body: { rating },
+			token
+		});
+	},
+
+	previewAutoMatch (
+		sessionId: string,
+		payload: { format: MatchFormat },
+		token: string
+	) {
+		return request<MatchProposal>(`/sessions/${sessionId}/matches/auto/preview`, {
+			method: 'POST',
+			body: payload,
+			token
+		});
+	},
+
 	getPlayerRatingsBatch (playerIds: string[], token: string) {
 		if (playerIds.length === 0) return Promise.resolve({ ratings: [] });
 		return request<{ ratings: Rating[] }>(`/players/ratings/batch`, {

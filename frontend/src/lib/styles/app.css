@@ -355,7 +355,52 @@ button {
 	}
 }
 
-/* ---------- misc ---------- */
+/* ---------- rank badges ---------- */
+.badge-rank-gold {
+	background: #ffb703;
+	color: #000;
+	border-color: #fb8500;
+}
+.badge-rank-purple {
+	background: #8e24aa;
+	color: #fff;
+	border-color: #ab47bc;
+}
+.badge-rank-blue {
+	background: #1e88e5;
+	color: #fff;
+	border-color: #42a5f5;
+}
+.badge-rank-gray {
+	background: #616161;
+	color: #fff;
+	border-color: #757575;
+}
+
+/* collapsible section header button */
+.section-toggle-btn {
+	background: none;
+	border: none;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0;
+	text-align: left;
+}
+.section-toggle-btn:hover {
+	opacity: 0.85;
+}
+.toggle-arrow {
+	display: inline-block;
+	transition: transform 0.2s ease;
+	font-size: 0.75rem;
+}
+.toggle-arrow.collapsed {
+	transform: rotate(-90deg);
+}
 
 .stack {
 	display: flex;

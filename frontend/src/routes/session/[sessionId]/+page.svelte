@@ -9,9 +9,16 @@
 		ensurePlayers,
 		ratingCache,
 		ensureRatings,
+		updateCachedRating,
 	} from "$lib/stores/players";
 	import { matchTeams, rememberMatchTeams } from "$lib/stores/matchTeams";
 	import { statusLabel, mmss } from "$lib/utils/format";
+	import {
+		getRank,
+		getRankBadgeClass,
+		rankToBaseRating,
+		RANK_TIERS,
+	} from "$lib/utils/rank";
 	import PullToRefresh from "$lib/components/PullToRefresh.svelte";
 	import { longpress } from "$lib/utils/gestures";
 	import type {
@@ -52,6 +59,55 @@
 	let polledAt = $state(Date.now());
 	let tick = $state(0);
 
+	// Collapsible section state
+	let courtsCollapsed = $state(false);
+	let playersCollapsed = $state(false);
+	let currentMatchesCollapsed = $state(false);
+	let historicalMatchesCollapsed = $state(false);
+	let showRankMode = $state<"both" | "rank" | "rating">("both");
+
+	// Host Edit Rating state
+	let editRatingPlayerId = $state<string | null>(null);
+	let editRatingVal = $state<number>(1000);
+	let editRankVal = $state<string>("C");
+	let savingRating = $state(false);
+
+	function openEditRating(playerId: string) {
+		if (!isHost) return;
+		editRatingPlayerId = playerId;
+		const r = rating(playerId) ?? 1000;
+		editRatingVal = Math.round(r);
+		editRankVal = getRank(r);
+	}
+
+	function onRankSelectChange(newRank: string) {
+		editRankVal = newRank;
+		editRatingVal = rankToBaseRating(newRank);
+	}
+
+	async function savePlayerRating() {
+		if (!hostToken || !editRatingPlayerId) return;
+		savingRating = true;
+		try {
+			await api.updatePlayerRating(
+				editRatingPlayerId,
+				editRatingVal,
+				hostToken,
+			);
+			updateCachedRating(editRatingPlayerId, editRatingVal);
+			toast.success(`Updated rating for ${name(editRatingPlayerId)}`);
+			editRatingPlayerId = null;
+		} catch (err) {
+			toast.error(
+				err instanceof ApiError
+					? err.message
+					: "Failed to update rating.",
+			);
+		} finally {
+			savingRating = false;
+		}
+	}
+
 	// courtId -> playerIds currently believed to occupy it (inferred client-side; the
 	// API doesn't expose match rosters, see notes on generateAuto/confirmManual below).
 	let courtOccupants = $state<Record<string, string[]>>({});
@@ -72,10 +128,19 @@
 	let availableCourts = $derived(
 		courts.filter((c) => c.status === "AVAILABLE"),
 	);
-	let latestMatches = $derived(matches.slice(0, 3));
-	let currentMatch = $derived(
-		matches.find((m) => m.status === "PLAYING") ?? null,
+	let currentMatches = $derived(
+		matches.filter((m) => m.status === "PLAYING"),
 	);
+	let historicalMatches = $derived(
+		matches.filter((m) => m.status === "FINISHED"),
+	);
+	let latestMatches = $derived(matches.slice(0, 3));
+
+	function courtActiveMatch(courtId: string): Match | undefined {
+		return matches.find(
+			(m) => m.court_id === courtId && m.status === "PLAYING",
+		);
+	}
 	let myPlayerId = $derived(
 		$identity &&
 			($identity.sessions[sessionId]?.player.id ??
@@ -397,6 +462,38 @@
 
 	async function generateAuto() {
 		if (!hostToken || !autoCourtId) return;
+		if (session && !session.auto_fill_enabled) {
+			generating = true;
+			try {
+				const p = await api.previewAutoMatch(
+					sessionId,
+					{ format: autoFormat },
+					hostToken,
+				);
+				proposal = {
+					a: p.team_a,
+					b: p.team_b,
+					ratingA: p.team_a_rating,
+					ratingB: p.team_b_rating,
+				};
+				manualCourtId = autoCourtId;
+				manualFormat = autoFormat;
+				openHud("match");
+				toast.info(
+					"Match preview generated! You can replace or swap players before confirming.",
+				);
+			} catch (err) {
+				toast.error(
+					err instanceof ApiError
+						? err.message
+						: "Could not generate match preview.",
+				);
+			} finally {
+				generating = false;
+			}
+			return;
+		}
+
 		const before = new Set(waiting.map((p) => p.player_id));
 		generating = true;
 		try {
@@ -518,6 +615,22 @@
 					a: replace(proposal.a, idB, idA),
 					b: replace(proposal.b, idA, idB),
 				};
+	}
+
+	function replaceProposalPlayer(
+		team: "a" | "b",
+		idx: 0 | 1,
+		newPlayerId: string,
+	) {
+		if (!proposal || !newPlayerId) return;
+		const currentTeam = [...proposal[team]] as [string, string];
+		currentTeam[idx] = newPlayerId;
+		proposal = {
+			...proposal,
+			[team]: currentTeam,
+			ratingA: team === "a" ? teamAvgRating(currentTeam) : proposal.ratingA,
+			ratingB: team === "b" ? teamAvgRating(currentTeam) : proposal.ratingB,
+		};
 	}
 
 	function startDrag(e: PointerEvent, id: string, from: "a" | "b") {
@@ -851,245 +964,329 @@
 				</div>
 			{/if}
 
-			<h2 class="section-title">Courts</h2>
-			<div class="courts-grid">
-				{#each courts as court (court.id)}
-					<div class="card card-tight court-card">
-						<div class="spread">
-							<strong>{court.name}</strong>
-							<span
-								class="badge dot"
-								class:badge-live={court.status === "PLAYING"}
-								>{statusLabel(court.status)}</span
-							>
-						</div>
-						<div class="occupants">
-							{#if courtOccupants[court.id] && courtOccupants[court.id].length}
-								{#each courtOccupants[court.id] as pid}
-									<button type="button" class="pick-chip">
-										{name(pid)}
-									</button>
-								{/each}
-							{/if}
-						</div>
-					</div>
-				{/each}
-				{#if courts.length === 0}
-					<p class="muted small">No courts yet.</p>
-				{/if}
+			<div class="spread section-header" style="margin-top:20px; margin-bottom:12px;">
+				<button type="button" class="section-toggle-btn" onclick={() => (courtsCollapsed = !courtsCollapsed)}>
+					<span class="toggle-arrow" class:collapsed={courtsCollapsed}>▼</span>
+					<h2 class="section-title">Courts ({courts.length})</h2>
+				</button>
 			</div>
-
-			<h2 class="section-title">
-				Players ({players.length - ended.length})
-			</h2>
-			<div class="players-grid">
-				<div class="stack">
-					<span class="faint small col-label"
-						>Playing — {playing.length}</span
-					>
-					{#each playing as p (p.id)}
-						<div class="prow card-tight">
+			{#if !courtsCollapsed}
+				<div class="courts-grid">
+					{#each courts as court (court.id)}
+						{@const activeMatch = courtActiveMatch(court.id)}
+						{#if activeMatch}
 							<a
-								class="pname"
-								href="/player/{p.player_id}?session={sessionId}"
+								href="/match/{activeMatch.id}?session={sessionId}"
+								class="card card-tight court-card court-card-link"
+								title="Click to view active match"
 							>
-								{name(p.player_id)}
-								{#if isGuest(p.player_id)}<span
-										class="guest-badge">guest</span
-									>{/if}
-							</a>
-							<span class="row">
-								{#if rating(p.player_id)}<span
-										class="mono faint small"
-										>{Math.round(
-											rating(p.player_id) ?? 0,
-										)}</span
-									>{/if}
-								<span class="mono faint small"
-									>{p.wins}W {p.losses}L</span
-								>
-							</span>
-						</div>
-					{/each}
-					{#if playing.length === 0}<p class="faint small">
-							Nobody on court yet.
-						</p>{/if}
-				</div>
-
-				<div class="stack">
-					<span class="faint small col-label"
-						>Waiting — {waiting.length}</span
-					>
-					{#each waiting as p (p.id)}
-						<div class="prow card-tight">
-							<a
-								class="pname"
-								href="/player/{p.player_id}?session={sessionId}"
-							>
-								{name(p.player_id)}
-								{#if isGuest(p.player_id)}<span
-										class="guest-badge">guest</span
-									>{/if}
-							</a>
-							<span class="row">
-								{#if rating(p.player_id)}<span
-										class="mono faint small"
-										>{Math.round(
-											rating(p.player_id) ?? 0,
-										)}</span
-									>{/if}
-								<span class="mono muted small"
-									>{mmss(liveWaitingSeconds(p, tick))}</span
-								>
-								{#if isHost}
-									<button
-										class="link-btn"
-										onclick={() => hostEndPlayer(p)}
-										title="Mark as left">✕</button
-									>
-								{/if}
-							</span>
-						</div>
-					{/each}
-					{#if waiting.length === 0}<p class="faint small">
-							Queue is empty.
-						</p>{/if}
-				</div>
-
-				<div class="stack">
-					<span class="faint small col-label"
-						>On break — {onBreak.length}</span
-					>
-					{#each onBreak as p (p.id)}
-						<div class="prow card-tight">
-							<a
-								class="pname"
-								href="/player/{p.player_id}?session={sessionId}"
-							>
-								{name(p.player_id)}
-								{#if isGuest(p.player_id)}<span
-										class="guest-badge">guest</span
-									>{/if}
-							</a>
-							<span class="row">
-								{#if rating(p.player_id)}<span
-										class="mono faint small"
-										>{Math.round(
-											rating(p.player_id) ?? 0,
-										)}</span
-									>{/if}
-								{#if isHost}
-									<button
-										class="link-btn"
-										onclick={() => hostEndPlayer(p)}
-										title="Mark as left">✕</button
-									>
-								{/if}
-							</span>
-						</div>
-					{/each}
-					{#if onBreak.length === 0}<p class="faint small">
-							Nobody on a break.
-						</p>{/if}
-				</div>
-			</div>
-
-			{#if currentMatch}
-				<section class="container rise-in">
-					<h2 class="section-title">Current Match</h2>
-					<div class="card match-card">
-						<div class="spread">
-							<h1>Match</h1>
-							<span
-								class="badge dot"
-								class:badge-live={currentMatch.status ===
-									"PLAYING"}
-								>{statusLabel(currentMatch.status)}</span
-							>
-						</div>
-						{#if $matchTeams[currentMatch.id]}
-							<div class="proposal">
-								<div class="team">
-									<span class="faint small">Team A</span>
-									<p>
-										{name(
-											$matchTeams[currentMatch.id].a[0],
-										)} &amp; {name(
-											$matchTeams[currentMatch.id].a[1],
-										)}
-									</p>
+								<div class="spread">
+									<strong>{court.name}</strong>
+									<span class="badge dot badge-live">PLAYING →</span>
 								</div>
-								<span class="vs">vs</span>
-								<div class="team">
-									<span class="faint small">Team B</span>
-									<p>
-										{name(
-											$matchTeams[currentMatch.id].b[0],
-										)} &amp; {name(
-											$matchTeams[currentMatch.id].b[1],
-										)}
-									</p>
+								<div class="occupants">
+									{#if courtOccupants[court.id] && courtOccupants[court.id].length}
+										{#each courtOccupants[court.id] as pid}
+											<span class="pick-chip">{name(pid)}</span>
+										{/each}
+									{/if}
+								</div>
+							</a>
+						{:else}
+							<div class="card card-tight court-card">
+								<div class="spread">
+									<strong>{court.name}</strong>
+									<span class="badge dot">{statusLabel(court.status)}</span>
+								</div>
+								<div class="occupants">
+									{#if courtOccupants[court.id] && courtOccupants[court.id].length}
+										{#each courtOccupants[court.id] as pid}
+											<span class="pick-chip">{name(pid)}</span>
+										{/each}
+									{:else}
+										<span class="faint small">Court available</span>
+									{/if}
 								</div>
 							</div>
 						{/if}
-					</div>
-				</section>
-			{/if}
-			{#if matches.length}
-				<div class="spread">
-					<h2 class="section-title">Latest matches</h2>
-					{#if matches.length > latestMatches.length}
-						<button
-							class="btn btn-ghost btn-sm"
-							onclick={() => (matchesOpen = !matchesOpen)}
-						>
-							{matchesOpen
-								? "Show latest"
-								: `Show all (${matches.length})`}
-						</button>
+					{/each}
+					{#if courts.length === 0}
+						<p class="muted small">No courts yet.</p>
 					{/if}
 				</div>
-				<div class="stack">
-					{#each matchesOpen ? matches : latestMatches as m, i (m.id)}
-						<a
-							href="/match/{m.id}?session={sessionId}"
-							class="card card-tight match-row row spread"
-						>
-							<span>
-								Match - {i + 1}
-								{#if $matchTeams[m.id]}
-									<span class="muted small">
-										(
-										{name($matchTeams[m.id].a[0])} &amp; {name(
-											$matchTeams[m.id].a[1],
-										)}
-									</span>
-									vs
-									<span class="muted small">
-										{name($matchTeams[m.id].b[0])} &amp; {name(
-											$matchTeams[m.id].b[1],
-										)}
-										)
-									</span>
-								{/if}
-							</span>
+			{/if}
 
-							<span class="row">
-								{#if m.status === "FINISHED"}
+			<div class="spread section-header" style="margin-top:24px; margin-bottom:12px;">
+				<button type="button" class="section-toggle-btn" onclick={() => (playersCollapsed = !playersCollapsed)}>
+					<span class="toggle-arrow" class:collapsed={playersCollapsed}>▼</span>
+					<h2 class="section-title">
+						Players ({players.length - ended.length})
+					</h2>
+				</button>
+				<div class="row">
+					<span class="faint small">View:</span>
+					<div class="segmented mini">
+						<button
+							type="button"
+							class:active={showRankMode === "both"}
+							onclick={() => (showRankMode = "both")}>Both</button
+						>
+						<button
+							type="button"
+							class:active={showRankMode === "rank"}
+							onclick={() => (showRankMode = "rank")}>Rank</button
+						>
+						<button
+							type="button"
+							class:active={showRankMode === "rating"}
+							onclick={() => (showRankMode = "rating")}>Rating</button
+						>
+					</div>
+				</div>
+			</div>
+			{#if !playersCollapsed}
+				<div class="players-grid">
+					<div class="stack">
+						<span class="faint small col-label"
+							>Playing — {playing.length}</span
+						>
+						{#each playing as p (p.id)}
+							<div class="prow card-tight">
+								<a
+									class="pname"
+									href="/player/{p.player_id}?session={sessionId}"
+								>
+									{name(p.player_id)}
+									{#if isGuest(p.player_id)}<span
+											class="guest-badge">guest</span
+										>{/if}
+								</a>
+								<span class="row">
+									{#if rating(p.player_id) != null}
+										<span class="mono faint small row gap-xs">
+											{#if showRankMode === "both" || showRankMode === "rank"}
+												<span class="badge {getRankBadgeClass(getRank(rating(p.player_id)))}"
+													>{getRank(rating(p.player_id))}</span
+												>
+											{/if}
+											{#if showRankMode === "both" || showRankMode === "rating"}
+												<span>{Math.round(rating(p.player_id) ?? 0)}</span>
+											{/if}
+											{#if isHost}
+												<button
+													class="link-btn"
+													onclick={() => openEditRating(p.player_id)}
+													title="Edit rating/rank">✏️</button
+												>
+											{/if}
+										</span>
+									{/if}
+									<span class="mono faint small"
+										>{p.wins}W {p.losses}L</span
+									>
+								</span>
+							</div>
+						{/each}
+						{#if playing.length === 0}<p class="faint small">
+								Nobody on court yet.
+							</p>{/if}
+					</div>
+
+					<div class="stack">
+						<span class="faint small col-label"
+							>Waiting — {waiting.length}</span
+						>
+						{#each waiting as p (p.id)}
+							<div class="prow card-tight">
+								<a
+									class="pname"
+									href="/player/{p.player_id}?session={sessionId}"
+								>
+									{name(p.player_id)}
+									{#if isGuest(p.player_id)}<span
+											class="guest-badge">guest</span
+										>{/if}
+								</a>
+								<span class="row">
+									{#if rating(p.player_id) != null}
+										<span class="mono faint small row gap-xs">
+											{#if showRankMode === "both" || showRankMode === "rank"}
+												<span class="badge {getRankBadgeClass(getRank(rating(p.player_id)))}"
+													>{getRank(rating(p.player_id))}</span
+												>
+											{/if}
+											{#if showRankMode === "both" || showRankMode === "rating"}
+												<span>{Math.round(rating(p.player_id) ?? 0)}</span>
+											{/if}
+											{#if isHost}
+												<button
+													class="link-btn"
+													onclick={() => openEditRating(p.player_id)}
+													title="Edit rating/rank">✏️</button
+												>
+											{/if}
+										</span>
+									{/if}
+									<span class="mono muted small"
+										>{mmss(liveWaitingSeconds(p, tick))}</span
+									>
+									{#if isHost}
+										<button
+											class="link-btn"
+											onclick={() => hostEndPlayer(p)}
+											title="Mark as left">✕</button
+										>
+									{/if}
+								</span>
+							</div>
+						{/each}
+						{#if waiting.length === 0}<p class="faint small">
+								Queue is empty.
+							</p>{/if}
+					</div>
+
+					<div class="stack">
+						<span class="faint small col-label"
+							>On break — {onBreak.length}</span
+						>
+						{#each onBreak as p (p.id)}
+							<div class="prow card-tight">
+								<a
+									class="pname"
+									href="/player/{p.player_id}?session={sessionId}"
+								>
+									{name(p.player_id)}
+									{#if isGuest(p.player_id)}<span
+											class="guest-badge">guest</span
+										>{/if}
+								</a>
+								<span class="row">
+									{#if rating(p.player_id) != null}
+										<span class="mono faint small row gap-xs">
+											{#if showRankMode === "both" || showRankMode === "rank"}
+												<span class="badge {getRankBadgeClass(getRank(rating(p.player_id)))}"
+													>{getRank(rating(p.player_id))}</span
+												>
+											{/if}
+											{#if showRankMode === "both" || showRankMode === "rating"}
+												<span>{Math.round(rating(p.player_id) ?? 0)}</span>
+											{/if}
+											{#if isHost}
+												<button
+													class="link-btn"
+													onclick={() => openEditRating(p.player_id)}
+													title="Edit rating/rank">✏️</button
+												>
+											{/if}
+										</span>
+									{/if}
+									{#if isHost}
+										<button
+											class="link-btn"
+											onclick={() => hostEndPlayer(p)}
+											title="Mark as left">✕</button
+										>
+									{/if}
+								</span>
+							</div>
+						{/each}
+						{#if onBreak.length === 0}<p class="faint small">
+								Nobody on a break.
+							</p>{/if}
+					</div>
+				</div>
+			{/if}
+
+			<div class="spread section-header" style="margin-top:24px; margin-bottom:12px;">
+				<button type="button" class="section-toggle-btn" onclick={() => (currentMatchesCollapsed = !currentMatchesCollapsed)}>
+					<span class="toggle-arrow" class:collapsed={currentMatchesCollapsed}>▼</span>
+					<h2 class="section-title">Current Matches ({currentMatches.length})</h2>
+				</button>
+			</div>
+			{#if !currentMatchesCollapsed}
+				{#if currentMatches.length}
+					<div class="stack">
+						{#each currentMatches as m (m.id)}
+							<a href="/match/{m.id}?session={sessionId}" class="card match-card match-card-live" style="margin-bottom:8px;">
+								<div class="spread">
+									<div class="row">
+										<span class="badge dot badge-live">Playing</span>
+										{#if courts.find(c => c.id === m.court_id)}
+											<strong>{courts.find(c => c.id === m.court_id)?.name}</strong>
+										{/if}
+									</div>
+									<span class="btn btn-ghost btn-sm">View Match →</span>
+								</div>
+								{#if $matchTeams[m.id]}
+									<div class="proposal" style="margin-top:12px;">
+										<div class="team">
+											<span class="faint small">Team A</span>
+											<p>
+												{name($matchTeams[m.id].a[0])} &amp; {name($matchTeams[m.id].a[1])}
+											</p>
+										</div>
+										<span class="vs">vs</span>
+										<div class="team">
+											<span class="faint small">Team B</span>
+											<p>
+												{name($matchTeams[m.id].b[0])} &amp; {name($matchTeams[m.id].b[1])}
+											</p>
+										</div>
+									</div>
+								{/if}
+							</a>
+						{/each}
+					</div>
+				{:else}
+					<p class="muted small">No active matches currently playing.</p>
+				{/if}
+			{/if}
+
+			<div class="spread section-header" style="margin-top:24px; margin-bottom:12px;">
+				<button type="button" class="section-toggle-btn" onclick={() => (historicalMatchesCollapsed = !historicalMatchesCollapsed)}>
+					<span class="toggle-arrow" class:collapsed={historicalMatchesCollapsed}>▼</span>
+					<h2 class="section-title">Historical Matches ({historicalMatches.length})</h2>
+				</button>
+			</div>
+			{#if !historicalMatchesCollapsed}
+				{#if historicalMatches.length}
+					<div class="stack">
+						{#each historicalMatches as m, i (m.id)}
+							<a
+								href="/match/{m.id}?session={sessionId}"
+								class="card card-tight match-row row spread"
+							>
+								<span>
+									Match - {historicalMatches.length - i}
+									{#if $matchTeams[m.id]}
+										<span class="muted small">
+											(
+											{name($matchTeams[m.id].a[0])} &amp; {name(
+												$matchTeams[m.id].a[1],
+											)}
+										</span>
+										vs
+										<span class="muted small">
+											{name($matchTeams[m.id].b[0])} &amp; {name(
+												$matchTeams[m.id].b[1],
+											)}
+											)
+										</span>
+									{/if}
+								</span>
+
+								<span class="row">
 									<span class="mono"
 										>{m.score_a}–{m.score_b}</span
 									>
-								{/if}
-								<span
-									class="badge dot"
-									class:badge-live={m.status === "PLAYING"}
-								>
-									{statusLabel(m.status)}
+									<span class="badge">Finished</span>
 								</span>
-							</span>
-						</a>
-					{/each}
-				</div>
+							</a>
+						{/each}
+					</div>
+				{:else}
+					<p class="muted small">No completed matches yet.</p>
+				{/if}
 			{/if}
 		</section>
 
@@ -1487,8 +1684,7 @@
 
 										{#if proposal}
 											<p class="faint small">
-												Drag a player onto the other
-												team to swap.
+												Drag to swap teams, or choose a member from the dropdown to replace.
 											</p>
 											<div class="proposal rise-in">
 												<div
@@ -1502,25 +1698,45 @@
 													<span class="faint small"
 														>Team A</span
 													>
-													<div class="team-players">
-														{#each proposal.a as id (id)}
-															<button
-																type="button"
-																class="drag-chip"
-																class:dragging-self={dragging?.id ===
-																	id}
-																data-player-slot={id}
-																onpointerdown={(
-																	e,
-																) =>
-																	startDrag(
+													<div class="team-players stack gap-xs">
+														{#each proposal.a as id, idx (id)}
+															<div class="row gap-xs wrap">
+																<button
+																	type="button"
+																	class="drag-chip"
+																	class:dragging-self={dragging?.id ===
+																		id}
+																	data-player-slot={id}
+																	onpointerdown={(
 																		e,
-																		id,
-																		"a",
-																	)}
-															>
-																{name(id)}
-															</button>
+																	) =>
+																		startDrag(
+																			e,
+																			id,
+																			"a",
+																		)}
+																>
+																	{name(id)}
+																</button>
+																<select
+																	class="select select-sm mini-replace-select"
+																	value={id}
+																	onchange={(e) =>
+																		replaceProposalPlayer(
+																			"a",
+																			idx as 0 | 1,
+																			e.currentTarget.value,
+																		)}
+																	title="Replace member"
+																>
+																	<option value={id}>Replace member…</option>
+																	{#each waiting.filter((wp) => !proposal?.a.includes(wp.player_id) && !proposal?.b.includes(wp.player_id)) as wp}
+																		<option value={wp.player_id}>
+																			Replace with {name(wp.player_id)} [{getRank(rating(wp.player_id))}]
+																		</option>
+																	{/each}
+																</select>
+															</div>
 														{/each}
 													</div>
 													<span
@@ -1542,25 +1758,45 @@
 													<span class="faint small"
 														>Team B</span
 													>
-													<div class="team-players">
-														{#each proposal.b as id (id)}
-															<button
-																type="button"
-																class="drag-chip"
-																class:dragging-self={dragging?.id ===
-																	id}
-																data-player-slot={id}
-																onpointerdown={(
-																	e,
-																) =>
-																	startDrag(
+													<div class="team-players stack gap-xs">
+														{#each proposal.b as id, idx (id)}
+															<div class="row gap-xs wrap">
+																<button
+																	type="button"
+																	class="drag-chip"
+																	class:dragging-self={dragging?.id ===
+																		id}
+																	data-player-slot={id}
+																	onpointerdown={(
 																		e,
-																		id,
-																		"b",
-																	)}
-															>
-																{name(id)}
-															</button>
+																	) =>
+																		startDrag(
+																			e,
+																			id,
+																			"b",
+																		)}
+																>
+																	{name(id)}
+																</button>
+																<select
+																	class="select select-sm mini-replace-select"
+																	value={id}
+																	onchange={(e) =>
+																		replaceProposalPlayer(
+																			"b",
+																			idx as 0 | 1,
+																			e.currentTarget.value,
+																		)}
+																	title="Replace member"
+																>
+																	<option value={id}>Replace member…</option>
+																	{#each waiting.filter((wp) => !proposal?.a.includes(wp.player_id) && !proposal?.b.includes(wp.player_id)) as wp}
+																		<option value={wp.player_id}>
+																			Replace with {name(wp.player_id)} [{getRank(rating(wp.player_id))}]
+																		</option>
+																	{/each}
+																</select>
+															</div>
 														{/each}
 													</div>
 													<span
@@ -1612,6 +1848,56 @@
 				style="left:{dragPos.x}px; top:{dragPos.y}px;"
 			>
 				{name(dragging.id)}
+			</div>
+		{/if}
+
+		{#if editRatingPlayerId}
+			<div
+				class="hud-backdrop"
+				onclick={() => (editRatingPlayerId = null)}
+				role="presentation"
+			></div>
+			<div class="card card-pop modal-dialog rise-in">
+				<h3 style="margin-bottom: 12px;">
+					Update Rating &amp; Rank for {name(editRatingPlayerId)}
+				</h3>
+				<div class="field">
+					<label for="rank-selector">Select Rank Category</label>
+					<select
+						id="rank-selector"
+						class="select"
+						bind:value={editRankVal}
+						onchange={(e) => onRankSelectChange(e.currentTarget.value)}
+					>
+						{#each RANK_TIERS as tier}
+							<option value={tier.rank}>{tier.label}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="field">
+					<label for="rating-input">Rating Value</label>
+					<input
+						id="rating-input"
+						type="number"
+						class="input mono"
+						bind:value={editRatingVal}
+						min="100"
+						max="3000"
+					/>
+				</div>
+				<div class="row spread" style="margin-top: 16px;">
+					<button
+						class="btn btn-ghost"
+						onclick={() => (editRatingPlayerId = null)}>Cancel</button
+					>
+					<button
+						class="btn btn-primary"
+						onclick={savePlayerRating}
+						disabled={savingRating}
+					>
+						{savingRating ? "Saving…" : "Save Rating"}
+					</button>
+				</div>
 			</div>
 		{/if}
 	{/if}
@@ -1986,6 +2272,35 @@
 
 	.match-row:hover {
 		border-color: var(--text-dim);
+	}
+
+	.court-card-link {
+		cursor: pointer;
+		transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+	}
+	.court-card-link:hover {
+		border-color: var(--accent);
+		transform: translateY(-2px);
+		box-shadow: var(--shadow-sm);
+	}
+	.modal-dialog {
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		z-index: 100;
+		width: 90%;
+		max-width: 440px;
+		background: var(--bg-elevated);
+	}
+	.mini-replace-select {
+		padding: 4px 8px;
+		font-size: 0.78rem;
+		max-width: 140px;
+		background: var(--bg);
+	}
+	.gap-xs {
+		gap: 6px;
 	}
 
 	@media (max-width: 720px) {

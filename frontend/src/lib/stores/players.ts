@@ -83,3 +83,8 @@ export async function ensureRatings (playerIds: string[], token: string): Promis
 		}
 	}
 }
+
+export function updateCachedRating (playerId: string, rating: number): void {
+	ratingCache.update((c) => ({ ...c, [playerId]: rating }));
+	ratingFetchedAt.set(playerId, Date.now());
+}

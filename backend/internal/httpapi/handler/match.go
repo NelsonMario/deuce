@@ -99,6 +99,35 @@ func (h *Handlers) GenerateMatch(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(toMatchDTO(m))
 }
 
+type PreviewAutoRequest struct {
+	Format string `json:"format" validate:"required,oneof=MIXED_DOUBLES MEN_DOUBLES WOMEN_DOUBLES"`
+}
+
+func (h *Handlers) PreviewAutoMatch(c *fiber.Ctx) error {
+	sessionID, err := ParseUUIDParam(c, "sessionId")
+	if err != nil {
+		return HandleError(c, err)
+	}
+	if err := h.requireHostOfSession(c, sessionID); err != nil {
+		return HandleError(c, err)
+	}
+	var req PreviewAutoRequest
+	if err := BindAndValidate(c, &req); err != nil {
+		return HandleError(c, err)
+	}
+	proposal, err := h.Matches.PreviewAutomatic(c.UserContext(), match.PreviewAutoInput{
+		SessionID: sessionID, Format: match.Format(req.Format),
+	})
+	if err != nil {
+		return HandleError(c, err)
+	}
+	return c.JSON(ProposalDTO{
+		TeamA:       [2]string{proposal.TeamA[0].String(), proposal.TeamA[1].String()},
+		TeamB:       [2]string{proposal.TeamB[0].String(), proposal.TeamB[1].String()},
+		TeamARating: proposal.TeamARating, TeamBRating: proposal.TeamBRating, RatingDiff: proposal.RatingDiff,
+	})
+}
+
 type RecommendManualRequest struct {
 	PlayerIDs [4]string `json:"player_ids" validate:"required,len=4,dive,uuid"`
 	Format    string    `json:"format" validate:"required,oneof=MIXED_DOUBLES MEN_DOUBLES WOMEN_DOUBLES"`

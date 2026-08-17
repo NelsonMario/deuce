@@ -110,6 +110,55 @@ type GenerateInput struct {
 	Format    Format
 }
 
+type PreviewAutoInput struct {
+	SessionID uuid.UUID
+	Format    Format
+}
+
+func (s *Service) PreviewAutomatic(ctx context.Context, in PreviewAutoInput) (*Proposal, error) {
+	if !in.Format.Valid() {
+		return nil, apperr.Validation("invalid match format")
+	}
+
+	q := db.New(s.pool)
+	waiting, err := q.ListWaitingSessionPlayersForUpdate(ctx, in.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list waiting session players: %w", err)
+	}
+
+	now := time.Now()
+	candidates := make([]matchmaking.Candidate, 0, len(waiting))
+	for _, sp := range waiting {
+		playerID := sessionPlayerID(sp)
+		p, err := q.GetPlayer(ctx, playerID)
+		if err != nil {
+			return nil, fmt.Errorf("get player %s: %w", playerID, err)
+		}
+		r, err := q.GetPlayerRating(ctx, playerID)
+		if err != nil {
+			return nil, fmt.Errorf("get player rating %s: %w", playerID, err)
+		}
+		waitSeconds := float64(sp.AccumulatedWaitingSeconds) + now.Sub(sp.WaitingStartedAt.Time).Seconds()
+		candidates = append(candidates, matchmaking.Candidate{
+			PlayerID:       playerID.String(),
+			Rating:         r.Rating,
+			Gender:         matchmaking.Gender(p.Gender),
+			Status:         matchmaking.StatusWaiting,
+			MatchesPlayed:  int(sp.MatchesPlayed),
+			WaitingSeconds: waitSeconds,
+		})
+	}
+
+	proposal, err := matchmaking.GenerateMatch(candidates, matchmaking.Format(in.Format))
+	if err != nil {
+		if errors.Is(err, matchmaking.ErrInsufficientPlayers) {
+			return nil, apperr.InsufficientPlayers("not enough eligible WAITING players for " + string(in.Format))
+		}
+		return nil, err
+	}
+	return toProposal(in.Format, proposal), nil
+}
+
 // GenerateAutomatic implements spec section 13: lock every WAITING
 // session_player for the session, run the deterministic matchmaking
 // algorithm over them, lock the target court, and atomically create the

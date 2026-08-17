@@ -51,6 +51,20 @@ func (s *Service) GetRating(ctx context.Context, id uuid.UUID) (Rating, error) {
 	return r, nil
 }
 
+func (s *Service) UpdateRating(ctx context.Context, id uuid.UUID, ratingVal float64) (Rating, error) {
+	if ratingVal <= 0 {
+		return Rating{}, apperr.Validation("rating must be positive")
+	}
+	r, err := s.repo.UpdateRating(ctx, id, ratingVal)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return Rating{}, apperr.NotFound("player rating")
+		}
+		return Rating{}, apperr.Internal(err)
+	}
+	return r, nil
+}
+
 func (s *Service) GetRatingsBatch(ctx context.Context, ids []uuid.UUID) ([]Rating, error) {
 	if len(ids) == 0 {
 		return []Rating{}, nil

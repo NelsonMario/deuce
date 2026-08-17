@@ -74,6 +74,7 @@ func NewApp(d Deps) *fiber.App {
 	sessions.Post("/:sessionId/courts", requireAuth, d.Handlers.CreateCourt)
 	sessions.Post("/:sessionId/guests", requireAuth, d.Handlers.RegisterGuests)
 	sessions.Post("/:sessionId/matches/generate", requireAuth, d.Handlers.GenerateMatch)
+	sessions.Post("/:sessionId/matches/auto/preview", requireAuth, d.Handlers.PreviewAutoMatch)
 	sessions.Post("/:sessionId/matches/manual/recommend", requireAuth, d.Handlers.RecommendManualMatch)
 	sessions.Post("/:sessionId/matches/manual/confirm", requireAuth, d.Handlers.ConfirmManualMatch)
 	sessions.Get("/:sessionId/matches", requireAuth, d.Handlers.ListSessionMatches)
@@ -91,6 +92,7 @@ func NewApp(d Deps) *fiber.App {
 	players.Post("/ratings/batch", requireAuth, d.Handlers.GetPlayerRatingsBatch)
 	players.Get("/:playerId", requireAuth, d.Handlers.GetPlayer)
 	players.Get("/:playerId/rating", requireAuth, d.Handlers.GetPlayerRating)
+	players.Put("/:playerId/rating", requireAuth, d.Handlers.UpdatePlayerRating)
 	players.Get("/:playerId/matches", requireAuth, d.Handlers.ListPlayerMatches)
 
 	internal := app.Group("/internal")

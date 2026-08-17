@@ -28,6 +28,7 @@ type Repository interface {
 	GetByTokenHash(ctx context.Context, tokenHash string) (Player, error)
 	CreateRating(ctx context.Context, playerID uuid.UUID, rating float64) (Rating, error)
 	GetRating(ctx context.Context, playerID uuid.UUID) (Rating, error)
+	UpdateRating(ctx context.Context, playerID uuid.UUID, rating float64) (Rating, error)
 	GetRatingsByIDs(ctx context.Context, ids []uuid.UUID) ([]Rating, error)
 	ListRatingHistory(ctx context.Context, playerID uuid.UUID, limit, offset int32) ([]RatingHistoryEntry, error)
 	ListMatches(ctx context.Context, playerID uuid.UUID, limit, offset int32) ([]MatchSummary, error)
@@ -153,6 +154,20 @@ func (r *pgRepository) GetRating(ctx context.Context, playerID uuid.UUID) (Ratin
 			return Rating{}, ErrNotFound
 		}
 		return Rating{}, fmt.Errorf("get player rating: %w", err)
+	}
+	return toRating(row), nil
+}
+
+func (r *pgRepository) UpdateRating(ctx context.Context, playerID uuid.UUID, ratingVal float64) (Rating, error) {
+	row, err := r.q().UpdatePlayerRating(ctx, db.UpdatePlayerRatingParams{
+		PlayerID: playerID,
+		Rating:   ratingVal,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Rating{}, ErrNotFound
+		}
+		return Rating{}, fmt.Errorf("update player rating: %w", err)
 	}
 	return toRating(row), nil
 }

@@ -94,3 +94,69 @@ func ApplyMatch(m MatchResult) []PlayerResult {
 	}
 	return results
 }
+
+// Rank represents a player's skill category based on rating.
+type Rank string
+
+const (
+	RankD      Rank = "D"
+	RankCMinus Rank = "C-"
+	RankC      Rank = "C"
+	RankCPlus  Rank = "C+"
+	RankBMinus Rank = "B-"
+	RankB      Rank = "B"
+	RankBPlus  Rank = "B+"
+	RankAMinus Rank = "A-"
+	RankA      Rank = "A"
+)
+
+// RatingToRank maps a numerical rating to a Rank tier.
+func RatingToRank(r float64) Rank {
+	switch {
+	case r < 900:
+		return RankD
+	case r < 1000:
+		return RankCMinus
+	case r < 1100:
+		return RankC
+	case r < 1200:
+		return RankCPlus
+	case r < 1300:
+		return RankBMinus
+	case r < 1400:
+		return RankB
+	case r < 1500:
+		return RankBPlus
+	case r < 1600:
+		return RankAMinus
+	default:
+		return RankA
+	}
+}
+
+// RankToBaseRating returns the starting base rating for a given Rank tier.
+func RankToBaseRating(rk Rank) float64 {
+	switch rk {
+	case RankD:
+		return 800.0
+	case RankCMinus:
+		return 900.0
+	case RankC:
+		return 1000.0
+	case RankCPlus:
+		return 1100.0
+	case RankBMinus:
+		return 1200.0
+	case RankB:
+		return 1300.0
+	case RankBPlus:
+		return 1400.0
+	case RankAMinus:
+		return 1500.0
+	case RankA:
+		return 1600.0
+	default:
+		return InitialRating
+	}
+}
+
