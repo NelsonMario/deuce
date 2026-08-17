@@ -129,16 +129,15 @@
 		courts.filter((c) => c.status === "AVAILABLE"),
 	);
 	let currentMatches = $derived(
-		matches.filter((m) => m.status === "PLAYING"),
+		matches.filter((m) => m.status === "PLAYING" || m.status === "CREATED"),
 	);
 	let historicalMatches = $derived(
 		matches.filter((m) => m.status === "FINISHED"),
 	);
-	let latestMatches = $derived(matches.slice(0, 3));
 
 	function courtActiveMatch(courtId: string): Match | undefined {
 		return matches.find(
-			(m) => m.court_id === courtId && m.status === "PLAYING",
+			(m) => m.court_id === courtId && (m.status === "PLAYING" || m.status === "CREATED"),
 		);
 	}
 	let myPlayerId = $derived(
