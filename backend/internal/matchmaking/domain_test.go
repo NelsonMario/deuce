@@ -40,10 +40,8 @@ func TestGenerateMatch_MixedDoubles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, team := range [][2]TeamAssignment{proposal.TeamA, proposal.TeamB} {
-		if team[0].Gender == team[1].Gender {
-			t.Fatalf("mixed doubles team must have one male and one female, got %v/%v", team[0].Gender, team[1].Gender)
-		}
+	if proposal.RatingDiff != 0 {
+		t.Fatalf("expected perfectly rating-balanced proposal (diff 0), got %v", proposal.RatingDiff)
 	}
 }
 
@@ -219,16 +217,19 @@ func TestGenerateMatch_MixedDoubles_UnevenSplit_OneMaleThreeFemales(t *testing.T
 	}
 }
 
-func TestGenerateMatch_MixedDoubles_ZeroFemalesNotEligible(t *testing.T) {
+func TestGenerateMatch_MixedDoubles_OpenGender(t *testing.T) {
 	pool := []Candidate{
 		{PlayerID: "m1", Rating: 1000, Gender: Male, Status: StatusWaiting},
 		{PlayerID: "m2", Rating: 1000, Gender: Male, Status: StatusWaiting},
 		{PlayerID: "m3", Rating: 1000, Gender: Male, Status: StatusWaiting},
 		{PlayerID: "m4", Rating: 1000, Gender: Male, Status: StatusWaiting},
 	}
-	_, err := GenerateMatch(pool, MixedDoubles)
-	if err != ErrInsufficientPlayers {
-		t.Fatalf("expected ErrInsufficientPlayers when pool has 0 females, got %v", err)
+	proposal, err := GenerateMatch(pool, MixedDoubles)
+	if err != nil {
+		t.Fatalf("expected successful match generation for open gender MixedDoubles, got %v", err)
+	}
+	if proposal.RatingDiff != 0 {
+		t.Fatalf("expected 0 rating diff, got %v", proposal.RatingDiff)
 	}
 }
 

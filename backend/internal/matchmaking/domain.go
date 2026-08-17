@@ -135,15 +135,7 @@ func GenerateMatch(pool []Candidate, format Format) (*Proposal, error) {
 		return bestBalancedSplit(group, format), nil
 
 	case MixedDoubles:
-		var males, females int
-		for _, c := range eligible {
-			if c.Gender == Male {
-				males++
-			} else {
-				females++
-			}
-		}
-		if len(eligible) < 4 || males < 1 || females < 1 {
+		if len(eligible) < 4 {
 			return nil, ErrInsufficientPlayers
 		}
 		sortByPriority(eligible)
@@ -213,20 +205,6 @@ func RecommendSplit(players [4]Candidate, format Format) (*Proposal, error) {
 	for _, c := range players {
 		if !eligibleForFormat(c, format) {
 			return nil, errors.New("selected player is not eligible for the chosen format")
-		}
-	}
-
-	if format == MixedDoubles {
-		var males, females int
-		for _, c := range players {
-			if c.Gender == Male {
-				males++
-			} else {
-				females++
-			}
-		}
-		if males < 1 || females < 1 {
-			return nil, errors.New("mixed doubles requires at least one male and one female player")
 		}
 	}
 
