@@ -61,9 +61,9 @@
 
 	// Collapsible section state
 	let courtsCollapsed = $state(false);
-	let playersCollapsed = $state(false);
+	let playersCollapsed = $state(true);
 	let currentMatchesCollapsed = $state(false);
-	let historicalMatchesCollapsed = $state(false);
+	let historicalMatchesCollapsed = $state(true);
 	let showRankMode = $state<"both" | "rank" | "rating">("both");
 
 	// Host Edit Rating state
@@ -980,6 +980,51 @@
 				</div>
 			{/if}
 
+			<div class="spread section-header" style="margin-top:24px; margin-bottom:12px;">
+				<button type="button" class="section-toggle-btn" onclick={() => (currentMatchesCollapsed = !currentMatchesCollapsed)}>
+					<span class="toggle-arrow" class:collapsed={currentMatchesCollapsed}>▼</span>
+					<h2 class="section-title">Current Matches ({currentMatches.length})</h2>
+				</button>
+			</div>
+			{#if !currentMatchesCollapsed}
+				{#if currentMatches.length}
+					<div class="stack">
+						{#each currentMatches as m (m.id)}
+							<a href="/match/{m.id}?session={sessionId}" class="card match-card match-card-live" style="margin-bottom:8px;">
+								<div class="spread">
+									<div class="row">
+										<span class="badge dot badge-live">Playing</span>
+										{#if courts.find(c => c.id === m.court_id)}
+											<strong>{courts.find(c => c.id === m.court_id)?.name}</strong>
+										{/if}
+									</div>
+									<span class="btn btn-ghost btn-sm">View Match →</span>
+								</div>
+								{#if $matchTeams[m.id]}
+									<div class="proposal" style="margin-top:12px;">
+										<div class="team">
+											<span class="faint small">Team A</span>
+											<p>
+												{name($matchTeams[m.id].a[0])} &amp; {name($matchTeams[m.id].a[1])}
+											</p>
+										</div>
+										<span class="vs">vs</span>
+										<div class="team">
+											<span class="faint small">Team B</span>
+											<p>
+												{name($matchTeams[m.id].b[0])} &amp; {name($matchTeams[m.id].b[1])}
+											</p>
+										</div>
+									</div>
+								{/if}
+							</a>
+						{/each}
+					</div>
+				{:else}
+					<p class="muted small">No active matches currently playing.</p>
+				{/if}
+			{/if}
+
 			<div class="spread section-header" style="margin-top:20px; margin-bottom:12px;">
 				<button type="button" class="section-toggle-btn" onclick={() => (courtsCollapsed = !courtsCollapsed)}>
 					<span class="toggle-arrow" class:collapsed={courtsCollapsed}>▼</span>
@@ -1093,11 +1138,22 @@
 													class="link-btn"
 													onclick={() => openEditRating(p.player_id)}
 													title="Edit rating/rank">
-													<svg width="800px" height="800px" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-														<path d="M0.5 10.5L0.146447 10.1464L0 10.2929V10.5H0.5ZM10.5 0.5L10.8536 0.146447C10.6583 -0.0488155 10.3417 -0.0488155 10.1464 0.146447L10.5 0.5ZM14.5 4.5L14.8536 4.85355C15.0488 4.65829 15.0488 4.34171 14.8536 4.14645L14.5 4.5ZM4.5 14.5V15H4.70711L4.85355 14.8536L4.5 14.5ZM0.5 14.5H0C0 14.7761 0.223858 15 0.5 15L0.5 14.5ZM0.853553 10.8536L10.8536 0.853553L10.1464 0.146447L0.146447 10.1464L0.853553 10.8536ZM10.1464 0.853553L14.1464 4.85355L14.8536 4.14645L10.8536 0.146447L10.1464 0.853553ZM14.1464 4.14645L4.14645 14.1464L4.85355 14.8536L14.8536 4.85355L14.1464 4.14645ZM4.5 14H0.5V15H4.5V14ZM1 14.5V10.5H0V14.5H1Z" fill="#000000"/>
-														</svg>
-													</button
-												>
+													<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+														<path
+															d="M4 20H7.5L19 8.5C19.8 7.7 19.8 6.3 19 5.5C18.2 4.7 16.8 4.7 16 5.5L4 17.5V20Z"
+															stroke="white"
+															stroke-width="2"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														/>
+														<path
+															d="M14.5 7L17 9.5"
+															stroke="white"
+															stroke-width="2"
+															stroke-linecap="round"
+														/>
+													</svg>
+												</button>
 											{/if}
 										</span>
 									{/if}
@@ -1143,9 +1199,21 @@
 													class="link-btn"
 													onclick={() => openEditRating(p.player_id)}
 													title="Edit rating/rank">
-													<svg width="800px" height="800px" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-														<path d="M0.5 10.5L0.146447 10.1464L0 10.2929V10.5H0.5ZM10.5 0.5L10.8536 0.146447C10.6583 -0.0488155 10.3417 -0.0488155 10.1464 0.146447L10.5 0.5ZM14.5 4.5L14.8536 4.85355C15.0488 4.65829 15.0488 4.34171 14.8536 4.14645L14.5 4.5ZM4.5 14.5V15H4.70711L4.85355 14.8536L4.5 14.5ZM0.5 14.5H0C0 14.7761 0.223858 15 0.5 15L0.5 14.5ZM0.853553 10.8536L10.8536 0.853553L10.1464 0.146447L0.146447 10.1464L0.853553 10.8536ZM10.1464 0.853553L14.1464 4.85355L14.8536 4.14645L10.8536 0.146447L10.1464 0.853553ZM14.1464 4.14645L4.14645 14.1464L4.85355 14.8536L14.8536 4.85355L14.1464 4.14645ZM4.5 14H0.5V15H4.5V14ZM1 14.5V10.5H0V14.5H1Z" fill="#000000"/>
-														</svg>
+													<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+														<path
+															d="M4 20H7.5L19 8.5C19.8 7.7 19.8 6.3 19 5.5C18.2 4.7 16.8 4.7 16 5.5L4 17.5V20Z"
+															stroke="white"
+															stroke-width="2"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														/>
+														<path
+															d="M14.5 7L17 9.5"
+															stroke="white"
+															stroke-width="2"
+															stroke-linecap="round"
+														/>
+													</svg>
 													</button
 												>
 											{/if}
@@ -1200,9 +1268,21 @@
 													class="link-btn"
 													onclick={() => openEditRating(p.player_id)}
 													title="Edit rating/rank">
-													<svg width="800px" height="800px" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-														<path d="M0.5 10.5L0.146447 10.1464L0 10.2929V10.5H0.5ZM10.5 0.5L10.8536 0.146447C10.6583 -0.0488155 10.3417 -0.0488155 10.1464 0.146447L10.5 0.5ZM14.5 4.5L14.8536 4.85355C15.0488 4.65829 15.0488 4.34171 14.8536 4.14645L14.5 4.5ZM4.5 14.5V15H4.70711L4.85355 14.8536L4.5 14.5ZM0.5 14.5H0C0 14.7761 0.223858 15 0.5 15L0.5 14.5ZM0.853553 10.8536L10.8536 0.853553L10.1464 0.146447L0.146447 10.1464L0.853553 10.8536ZM10.1464 0.853553L14.1464 4.85355L14.8536 4.14645L10.8536 0.146447L10.1464 0.853553ZM14.1464 4.14645L4.14645 14.1464L4.85355 14.8536L14.8536 4.85355L14.1464 4.14645ZM4.5 14H0.5V15H4.5V14ZM1 14.5V10.5H0V14.5H1Z" fill="#000000"/>
-														</svg>
+													<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+														<path
+															d="M4 20H7.5L19 8.5C19.8 7.7 19.8 6.3 19 5.5C18.2 4.7 16.8 4.7 16 5.5L4 17.5V20Z"
+															stroke="white"
+															stroke-width="2"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														/>
+														<path
+															d="M14.5 7L17 9.5"
+															stroke="white"
+															stroke-width="2"
+															stroke-linecap="round"
+														/>
+													</svg>
 													</button
 												>
 											{/if}
@@ -1223,51 +1303,6 @@
 							</p>{/if}
 					</div>
 				</div>
-			{/if}
-
-			<div class="spread section-header" style="margin-top:24px; margin-bottom:12px;">
-				<button type="button" class="section-toggle-btn" onclick={() => (currentMatchesCollapsed = !currentMatchesCollapsed)}>
-					<span class="toggle-arrow" class:collapsed={currentMatchesCollapsed}>▼</span>
-					<h2 class="section-title">Current Matches ({currentMatches.length})</h2>
-				</button>
-			</div>
-			{#if !currentMatchesCollapsed}
-				{#if currentMatches.length}
-					<div class="stack">
-						{#each currentMatches as m (m.id)}
-							<a href="/match/{m.id}?session={sessionId}" class="card match-card match-card-live" style="margin-bottom:8px;">
-								<div class="spread">
-									<div class="row">
-										<span class="badge dot badge-live">Playing</span>
-										{#if courts.find(c => c.id === m.court_id)}
-											<strong>{courts.find(c => c.id === m.court_id)?.name}</strong>
-										{/if}
-									</div>
-									<span class="btn btn-ghost btn-sm">View Match →</span>
-								</div>
-								{#if $matchTeams[m.id]}
-									<div class="proposal" style="margin-top:12px;">
-										<div class="team">
-											<span class="faint small">Team A</span>
-											<p>
-												{name($matchTeams[m.id].a[0])} &amp; {name($matchTeams[m.id].a[1])}
-											</p>
-										</div>
-										<span class="vs">vs</span>
-										<div class="team">
-											<span class="faint small">Team B</span>
-											<p>
-												{name($matchTeams[m.id].b[0])} &amp; {name($matchTeams[m.id].b[1])}
-											</p>
-										</div>
-									</div>
-								{/if}
-							</a>
-						{/each}
-					</div>
-				{:else}
-					<p class="muted small">No active matches currently playing.</p>
-				{/if}
 			{/if}
 
 			<div class="spread section-header" style="margin-top:24px; margin-bottom:12px;">
@@ -1317,6 +1352,54 @@
 				{/if}
 			{/if}
 		</section>
+
+		{#if editRatingPlayerId}
+			<div
+				class="hud-backdrop"
+				onclick={() => (editRatingPlayerId = null)}
+				role="presentation"
+			></div>
+			<div class="card card-pop modal-dialog">
+				<h3 style="margin-bottom: 12px;">
+					Update Rating &amp; Rank for {name(editRatingPlayerId)}
+				</h3>
+				<div class="field">
+					<label for="rank-selector">Select Rank Category</label>
+					<select
+						id="rank-selector"
+						class="select"
+						bind:value={editRankVal}
+						onchange={(e) => onRankSelectChange(e.currentTarget.value)}
+					>
+						{#each RANK_TIERS as tier}
+							<option value={tier.rank}>{tier.label}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="field">
+					<label for="rating-input">Rating Value</label>
+					<input
+						id="rating-input"
+						type="number"
+						class="input mono"
+						bind:value={editRatingVal}
+					/>
+				</div>
+				<div class="row spread" style="margin-top: 16px;">
+					<button
+						class="btn btn-ghost"
+						onclick={() => (editRatingPlayerId = null)}>Cancel</button
+					>
+					<button
+						class="btn btn-primary"
+						onclick={savePlayerRating}
+						disabled={savingRating}
+					>
+						{savingRating ? "Saving…" : "Save Rating"}
+					</button>
+				</div>
+			</div>
+		{/if}
 
 		<!-- Rendered outside the section above (not nested inside a `.rise-in`
 	     entrance-animated ancestor) so `position: fixed` here is actually
@@ -1727,154 +1810,153 @@
 												? "Balancing…"
 												: "Preview teams"}
 										</button>
-
-										{#if proposal}
-											<p class="faint small">
-												Drag to swap teams, or choose a member from the dropdown to replace.
-											</p>
-											<div class="proposal rise-in">
-												<div
-													class="team"
-													class:drop-hover={hoverPlayerId &&
-														proposal.a.includes(
-															hoverPlayerId,
-														) &&
-														dragging?.from === "b"}
-												>
-													<span class="faint small"
-														>Team A</span
-													>
-													<div class="team-players stack gap-xs">
-														{#each proposal.a as id, idx (id)}
-															<div class="row gap-xs wrap">
-																<button
-																	type="button"
-																	class="drag-chip"
-																	class:dragging-self={dragging?.id ===
-																		id}
-																	data-player-slot={id}
-																	onpointerdown={(
-																		e,
-																	) =>
-																		startDrag(
-																			e,
-																			id,
-																			"a",
-																		)}
-																>
-																	{name(id)}
-																</button>
-																<select
-																	class="select select-sm mini-replace-select"
-																	value={id}
-																	onchange={(e) =>
-																		replaceProposalPlayer(
-																			"a",
-																			idx as 0 | 1,
-																			e.currentTarget.value,
-																		)}
-																	title="Replace member"
-																>
-																	<option value={id}>Replace member…</option>
-																	{#each waiting.filter((wp) => !proposal?.a.includes(wp.player_id) && !proposal?.b.includes(wp.player_id)) as wp}
-																		<option value={wp.player_id}>
-																			Replace with {name(wp.player_id)} [{getRank(rating(wp.player_id))}]
-																		</option>
-																	{/each}
-																</select>
-															</div>
-														{/each}
-													</div>
-													<span
-														class="mono faint small"
-														>avg {teamAvgRating(
-															proposal.a,
-														).toFixed(0)}</span
-													>
-												</div>
-												<span class="vs">vs</span>
-												<div
-													class="team"
-													class:drop-hover={hoverPlayerId &&
-														proposal.b.includes(
-															hoverPlayerId,
-														) &&
-														dragging?.from === "a"}
-												>
-													<span class="faint small"
-														>Team B</span
-													>
-													<div class="team-players stack gap-xs">
-														{#each proposal.b as id, idx (id)}
-															<div class="row gap-xs wrap">
-																<button
-																	type="button"
-																	class="drag-chip"
-																	class:dragging-self={dragging?.id ===
-																		id}
-																	data-player-slot={id}
-																	onpointerdown={(
-																		e,
-																	) =>
-																		startDrag(
-																			e,
-																			id,
-																			"b",
-																		)}
-																>
-																	{name(id)}
-																</button>
-																<select
-																	class="select select-sm mini-replace-select"
-																	value={id}
-																	onchange={(e) =>
-																		replaceProposalPlayer(
-																			"b",
-																			idx as 0 | 1,
-																			e.currentTarget.value,
-																		)}
-																	title="Replace member"
-																>
-																	<option value={id}>Replace member…</option>
-																	{#each waiting.filter((wp) => !proposal?.a.includes(wp.player_id) && !proposal?.b.includes(wp.player_id)) as wp}
-																		<option value={wp.player_id}>
-																			Replace with {name(wp.player_id)} [{getRank(rating(wp.player_id))}]
-																		</option>
-																	{/each}
-																</select>
-															</div>
-														{/each}
-													</div>
-													<span
-														class="mono faint small"
-														>avg {teamAvgRating(
-															proposal.b,
-														).toFixed(0)}</span
-													>
-												</div>
-											</div>
-											<div class="row wrap">
-												<select
-													class="select"
-													bind:value={manualCourtId}
-												>
-													{#each availableCourts as c}
-														<option value={c.id}
-															>{c.name}</option
+									</div>
+								{/if}
+								{#if proposal}
+									<p class="faint small">
+										Drag to swap teams, or choose a member from the dropdown to replace.
+									</p>
+									<div class="proposal rise-in">
+										<div
+											class="team"
+											class:drop-hover={hoverPlayerId &&
+												proposal.a.includes(
+													hoverPlayerId,
+												) &&
+												dragging?.from === "b"}
+										>
+											<span class="faint small"
+												>Team A</span
+											>
+											<div class="team-players stack gap-xs">
+												{#each proposal.a as id, idx (id)}
+													<div class="row gap-xs wrap">
+														<button
+															type="button"
+															class="drag-chip"
+															class:dragging-self={dragging?.id ===
+																id}
+															data-player-slot={id}
+															onpointerdown={(
+																e,
+															) =>
+																startDrag(
+																	e,
+																	id,
+																	"a",
+																)}
 														>
-													{/each}
-												</select>
-												<button
-													class="btn btn-primary"
-													onclick={confirmManual}
-													disabled={confirming}
-												>
-													{confirming
-														? "Confirming…"
-														: "Confirm match"}
-												</button>
+															{name(id)}
+														</button>
+														<select
+															class="select select-sm mini-replace-select"
+															value={id}
+															onchange={(e) =>
+																replaceProposalPlayer(
+																	"a",
+																	idx as 0 | 1,
+																	e.currentTarget.value,
+																)}
+															title="Replace member"
+														>
+															<option value={id}>Replace member…</option>
+															{#each waiting.filter((wp) => !proposal?.a.includes(wp.player_id) && !proposal?.b.includes(wp.player_id)) as wp}
+																<option value={wp.player_id}>
+																	Replace with {name(wp.player_id)} [{getRank(rating(wp.player_id))}]
+																</option>
+															{/each}
+														</select>
+													</div>
+												{/each}
 											</div>
-										{/if}
+											<span
+												class="mono faint small"
+												>avg {teamAvgRating(
+													proposal.a,
+												).toFixed(0)}</span
+											>
+										</div>
+										<span class="vs">vs</span>
+										<div
+											class="team"
+											class:drop-hover={hoverPlayerId &&
+												proposal.b.includes(
+													hoverPlayerId,
+												) &&
+												dragging?.from === "a"}
+										>
+											<span class="faint small"
+												>Team B</span
+											>
+											<div class="team-players stack gap-xs">
+												{#each proposal.b as id, idx (id)}
+													<div class="row gap-xs wrap">
+														<button
+															type="button"
+															class="drag-chip"
+															class:dragging-self={dragging?.id ===
+																id}
+															data-player-slot={id}
+															onpointerdown={(
+																e,
+															) =>
+																startDrag(
+																	e,
+																	id,
+																	"b",
+																)}
+														>
+															{name(id)}
+														</button>
+														<select
+															class="select select-sm mini-replace-select"
+															value={id}
+															onchange={(e) =>
+																replaceProposalPlayer(
+																	"b",
+																	idx as 0 | 1,
+																	e.currentTarget.value,
+																)}
+															title="Replace member"
+														>
+															<option value={id}>Replace member…</option>
+															{#each waiting.filter((wp) => !proposal?.a.includes(wp.player_id) && !proposal?.b.includes(wp.player_id)) as wp}
+																<option value={wp.player_id}>
+																	Replace with {name(wp.player_id)} [{getRank(rating(wp.player_id))}]
+																</option>
+															{/each}
+														</select>
+													</div>
+												{/each}
+											</div>
+											<span
+												class="mono faint small"
+												>avg {teamAvgRating(
+													proposal.b,
+												).toFixed(0)}</span
+											>
+										</div>
+									</div>
+									<div class="row wrap">
+										<select
+											class="select"
+											bind:value={manualCourtId}
+										>
+											{#each availableCourts as c}
+												<option value={c.id}
+													>{c.name}</option
+												>
+											{/each}
+										</select>
+										<button
+											class="btn btn-primary"
+											onclick={confirmManual}
+											disabled={confirming}
+										>
+											{confirming
+												? "Confirming…"
+												: "Confirm match"}
+										</button>
 									</div>
 								{/if}
 							</div>
