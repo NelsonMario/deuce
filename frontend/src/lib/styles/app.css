@@ -30,7 +30,8 @@
 	--shadow-pink: 6px 6px 0 0 rgba(255, 62, 165, 0.22);
 	--shadow-sm: 3px 3px 0 0 rgba(198, 255, 92, 0.22);
 	--font-sans:
-		-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+		'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial,
+		sans-serif;
 	--font-mono: 'SF Mono', ui-monospace, 'Menlo', 'Cascadia Code', monospace;
 	--font-display: 'Bebas Neue', var(--font-sans);
 }
@@ -71,6 +72,136 @@ body {
 	font-family: var(--font-sans);
 	-webkit-font-smoothing: antialiased;
 	line-height: 1.45;
+	/* subtle vertical drift so the page breathes — imperceptible but alive */
+	background-image: radial-gradient(
+			ellipse 80% 50% at 50% -10%,
+			color-mix(in srgb, var(--accent) 4%, transparent),
+			transparent
+		);
+}
+
+/* ---------- awwwards-grade global chrome ---------- */
+
+::selection {
+	background: var(--accent);
+	color: var(--accent-contrast);
+}
+
+/* thin custom scrollbar with accent feedback (WebKit + Firefox) */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--border) transparent;
+}
+
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--border);
+	border-radius: 100px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--accent);
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 3px;
+	border-radius: 4px;
+}
+
+/* The custom cursor takes over — except text fields where an I-beam still
+   communicates "you can type here". */
+html.custom-cursor,
+html.custom-cursor a,
+html.custom-cursor button,
+html.custom-cursor label {
+	cursor: none;
+}
+
+/* ---------- scroll reveal (paired with the `reveal` action) ---------- */
+
+.will-reveal {
+	opacity: 0;
+	transform: translateY(var(--reveal-y, 22px));
+}
+
+.will-reveal.revealed {
+	opacity: 1;
+	transform: translateY(0);
+	transition:
+		opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+		transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+	transition-delay: var(--reveal-delay, 0ms);
+}
+
+/* ---------- pointer tilt (paired with the `tilt` action) ---------- */
+
+.tiltable {
+	transform: perspective(700px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg))
+		translate(var(--mag-x, 0px), var(--mag-y, 0px));
+	transition: transform 0.18s ease-out;
+	will-change: transform;
+	position: relative;
+}
+
+/* pointer-following spotlight, visible only while actively tilting */
+.tiltable::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.25s ease;
+	background: radial-gradient(
+		220px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+		color-mix(in srgb, var(--accent) 12%, transparent),
+		transparent 65%
+	);
+}
+
+.tiltable.tilting::after {
+	opacity: 1;
+}
+
+/* ---------- film grain ---------- */
+
+.grain {
+	position: fixed;
+	inset: -50%;
+	z-index: 150;
+	pointer-events: none;
+	opacity: 0.05;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	animation: grain-shift 0.9s steps(4) infinite;
+}
+
+@keyframes grain-shift {
+	0% {
+		transform: translate(0, 0);
+	}
+	25% {
+		transform: translate(-2%, 3%);
+	}
+	50% {
+		transform: translate(3%, -2%);
+	}
+	75% {
+		transform: translate(-3%, -3%);
+	}
+	100% {
+		transform: translate(2%, 2%);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.grain {
+		animation: none;
+	}
 }
 
 h1,
@@ -156,21 +287,57 @@ button {
 	color: var(--accent-contrast);
 	border-color: var(--accent-contrast);
 	box-shadow: var(--shadow-sm);
+	position: relative;
+	overflow: hidden;
+}
+
+/* diagonal shine that sweeps across on hover — a small physical reward for
+   aiming at the button */
+.btn-primary::before {
+	content: '';
+	position: absolute;
+	top: -40%;
+	bottom: -40%;
+	left: -70%;
+	width: 40%;
+	transform: skewX(-24deg);
+	background: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in srgb, white 65%, transparent),
+		transparent
+	);
+	opacity: 0;
+	pointer-events: none;
 }
 
 .btn-primary:hover:not(:disabled) {
 	background: var(--accent-strong);
 }
 
+.btn-primary:hover:not(:disabled)::before {
+	opacity: 1;
+	left: 130%;
+	transition: left 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.1s ease;
+}
+
 .btn-ghost {
 	background: transparent;
 	border-color: var(--border);
 	color: var(--text);
+	transition:
+		transform 0.12s ease,
+		box-shadow 0.12s ease,
+		background-color 0.15s ease,
+		border-color 0.15s ease,
+		color 0.15s ease;
 }
 
 .btn-ghost:hover:not(:disabled) {
-	border-color: var(--text-dim);
-	background: var(--bg-elevated);
+	border-color: var(--accent);
+	color: var(--accent);
+	transform: translate(-1px, -1px);
+	box-shadow: var(--shadow-sm);
 }
 
 .btn-danger {
@@ -190,6 +357,13 @@ button {
 
 .btn-block {
 	width: 100%;
+}
+
+/* magnetic drift consumer (paired with the `magnetic` action) */
+.magnetic {
+	transform: translate(var(--mag-x, 0px), var(--mag-y, 0px));
+	transition: transform 0.16s ease-out;
+	will-change: transform;
 }
 
 /* ---------- forms ---------- */
@@ -280,6 +454,22 @@ button {
 .card-pop {
 	border: 2px solid var(--accent);
 	box-shadow: var(--shadow);
+}
+
+/* interactive cards: lift + accent border + shadow grow on hover */
+.lift {
+	transition:
+		transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+		border-color 0.22s ease,
+		box-shadow 0.22s ease;
+}
+
+@media (hover: hover) {
+	.lift:hover {
+		transform: translateY(-4px);
+		border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+		box-shadow: 8px 8px 0 0 rgba(198, 255, 92, 0.16);
+	}
 }
 
 .card-pop.card-pop-pink {

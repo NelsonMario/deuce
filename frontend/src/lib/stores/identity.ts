@@ -44,7 +44,21 @@ interface IdentityState {
 	// Populated by ensureCoHostChecked(); never assume false permanently,
 	// since promotion can happen at any time after this device last checked.
 	coHostClubs: Record<string, boolean>;
-	lastSessionId?: string;
+	/** Most recently created/visited/joined club — "Back to your club" aims
+	 * here instead of an arbitrary (possibly deleted) first key. */
+	lastClubId?: string;
+	/** The most recent display name + gender used by this device — lets
+	 * join/rejoin forms prefill themselves so a relogin is one tap, not a
+	 * re-typing exercise. */
+	lastProfile?: { displayName: string; gender: 'MALE' | 'FEMALE' };
+}
+
+/** Shallow copy of obj without key — avoids leaking stale entries. */
+function omitKey<T extends object>(obj: T, key: string): T {
+	if (!(key in (obj as Record<string, unknown>))) return obj;
+	const next = { ...(obj as Record<string, unknown>) };
+	delete next[key];
+	return next as T;
 }
 
 const STORAGE_KEY = 'deuce:identity:v1';
@@ -101,7 +115,8 @@ export const identity = {
 					hostToken,
 					hostName
 				}
-			}
+			},
+			lastClubId: club.id
 		}));
 	},
 
@@ -125,7 +140,8 @@ export const identity = {
 					joinCode: club.join_code,
 					hostPlayerId: club.host_player_id
 				}
-			}
+			},
+			lastClubId: club.id
 		}));
 	},
 
@@ -139,8 +155,15 @@ export const identity = {
 	rememberClubMembership(clubId: string, token: string, player: Player) {
 		store.update((s) => ({
 			...s,
-			clubMemberships: { ...s.clubMemberships, [clubId]: { token, player } }
+			clubMemberships: { ...s.clubMemberships, [clubId]: { token, player } },
+			lastClubId: clubId,
+			lastProfile: { displayName: player.display_name, gender: player.gender }
 		}));
+	},
+
+	rememberProfile(displayName: string, gender: 'MALE' | 'FEMALE') {
+		if (!displayName) return;
+		store.update((s) => ({ ...s, lastProfile: { displayName, gender } }));
 	},
 
 	rememberSession(sessionId: string, entry: Omit<SessionIdentity, 'sessionId'>) {
@@ -150,20 +173,51 @@ export const identity = {
 			clubBySession: entry.clubId
 				? { ...s.clubBySession, [sessionId]: entry.clubId }
 				: s.clubBySession,
-			lastSessionId: sessionId
+			lastProfile: { displayName: entry.player.display_name, gender: entry.player.gender }
 		}));
 	},
 
 	setSessionClub(sessionId: string, clubId: string) {
 		store.update((s) => {
-			if (s.clubBySession[sessionId] === clubId) return s;
+			// Visiting a session marks its club as the current one, even when
+			// nothing else changes — "Back to your club" follows activity.
+			const withLast = { ...s, lastClubId: clubId };
+			if (s.clubBySession[sessionId] === clubId) return withLast;
 			const existing = s.sessionsByClub[clubId] ?? [];
 			return {
-				...s,
+				...withLast,
 				clubBySession: { ...s.clubBySession, [sessionId]: clubId },
 				sessionsByClub: existing.includes(sessionId)
 					? s.sessionsByClub
 					: { ...s.sessionsByClub, [clubId]: [...existing, sessionId] }
+			};
+		});
+	},
+
+	/**
+	 * Drops every local trace of a club — cached info, membership token,
+	 * session mappings, co-host flag. Called when the server confirms the
+	 * club no longer exists (404), so links like "Back to your club" stop
+	 * steering people at dead entries.
+	 */
+	forgetClub(clubId: string) {
+		store.update((s) => {
+			const sessionIds = s.sessionsByClub[clubId] ?? [];
+			let sessions = s.sessions;
+			let clubBySession = s.clubBySession;
+			for (const sid of sessionIds) {
+				sessions = omitKey(sessions, sid);
+				clubBySession = omitKey(clubBySession, sid);
+			}
+			return {
+				...s,
+				clubs: omitKey(s.clubs, clubId),
+				clubMemberships: omitKey(s.clubMemberships, clubId),
+				sessionsByClub: omitKey(s.sessionsByClub, clubId),
+				coHostClubs: omitKey(s.coHostClubs, clubId),
+				sessions,
+				clubBySession,
+				lastClubId: s.lastClubId === clubId ? undefined : s.lastClubId
 			};
 		});
 	},

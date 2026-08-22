@@ -3,6 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { identity } from '$lib/stores/identity';
 	import { toast } from '$lib/stores/toast';
+	import { reveal } from '$lib/actions/motion';
 
 	let clubName = $state('');
 	let hostName = $state('');
@@ -34,13 +35,13 @@
 </svelte:head>
 
 <section class="container rise-in">
-	<p class="kicker muted">step 1 of 2</p>
-	<h1>Start a club</h1>
-	<p class="muted lead">
+	<p class="kicker muted" use:reveal={{ delay: 0 }}>step 1 of 2</p>
+	<h1 use:reveal={{ delay: 80 }}>Start a club</h1>
+	<p class="muted lead" use:reveal={{ delay: 160 }}>
 		You'll get a join code straight after — share it however you're already coordinating.
 	</p>
 
-	<form onsubmit={submit} class="card stack">
+	<form onsubmit={submit} class="card stack" use:reveal={{ delay: 240 }}>
 		<div class="field">
 			<label for="clubName">Club name</label>
 			<input

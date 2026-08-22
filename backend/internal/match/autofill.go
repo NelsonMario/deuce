@@ -157,6 +157,14 @@ func (p *AutoFillPoller) processSession(ctx context.Context, sess session.Sessio
 			continue
 		}
 		p.logger.Info("autofill_match_generated", "session_id", sess.ID, "court_id", court.ID, "match_id", m.ID)
+
+		// Every generated match starts immediately — same behavior as the
+		// host-triggered POST /matches/generate handler — so nobody sits on
+		// a court waiting for someone to tap "Start". A failure here leaves
+		// the match CREATED; the host can still start it by hand.
+		if _, err := p.matches.StartMatch(ctx, m.ID); err != nil {
+			p.logger.Warn("autofill_start_failed", "session_id", sess.ID, "court_id", court.ID, "match_id", m.ID, "error", err)
+		}
 		waiting -= minPlayersPerMatch
 	}
 }

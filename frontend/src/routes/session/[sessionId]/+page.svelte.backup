@@ -21,7 +21,6 @@
 	} from "$lib/utils/rank";
 	import PullToRefresh from "$lib/components/PullToRefresh.svelte";
 	import { longpress } from "$lib/utils/gestures";
-	import { reveal } from "$lib/actions/motion";
 	import type {
 		AssignmentMode,
 		Court,
@@ -732,43 +731,20 @@
 		}
 	}
 
-	// ---- HUD panel (host tools live in a labeled bottom dock — always on
-	// screen for hosts, so the tools can't be missed the way a corner FAB
-	// was) ----
+	// ---- HUD panel (host tools tucked behind a floating control, not
+	// inline in the main flow — see the pop-art/HUD design pass) ----
 	let hudOpen = $state(false);
 	let matchesOpen = $state(false);
 	let activeTool = $state<"match" | "courts" | "invite" | "club">("match");
 
-	type HudTool = "match" | "courts" | "invite" | "club";
-
-	const DOCK_SEEN_KEY = "deuce:hostdock-opened";
-	let dockSeen = $state(
-		typeof window !== "undefined" &&
-			window.localStorage.getItem(DOCK_SEEN_KEY) === "1",
-	);
-
-	function openHud(tool: HudTool = activeTool) {
+	function openHud(
+		tool: "match" | "courts" | "invite" | "club" = activeTool,
+	) {
 		activeTool = tool;
 		hudOpen = true;
-		if (!dockSeen) {
-			dockSeen = true;
-			try {
-				window.localStorage.setItem(DOCK_SEEN_KEY, "1");
-			} catch {
-				// storage unavailable — the pulse just shows again next visit
-			}
-		}
 	}
 
-	function toggleHud(tool: HudTool) {
-		if (hudOpen && activeTool === tool) {
-			hudOpen = false;
-			return;
-		}
-		openHud(tool);
-	}
-
-	// Swipe-up-from-the-bottom-edge, in addition to tapping the dock — an
+	// Swipe-up-from-the-bottom-edge, in addition to tapping the FAB — an
 	// alternate, gesture-first way in for a host who's already down there.
 	// Scoped to the bottom strip so it doesn't hijack ordinary scrolling.
 	let swipeStartY = $state<number | null>(null);
@@ -842,20 +818,24 @@
 	});
 
 	// ---- relogin ----
-	// Sessions end and their local tokens go stale, so getting back in never
-	// restores stored *session* state — it routes through the club code
-	// instead (/join's club-code tab recognizes returning devices and seats
-	// them straight into whatever session is live now). A device that
-	// visited before may still have the club's permanent join code cached
-	// (via cacheClubInfo), which is enough to prefill the code field;
-	// otherwise the plain /join page asks for it.
-	let rejoinCode = $derived(
+	// A device that visited this session before (even in a previous browser
+	// session) may still have clubBySession[sessionId] and a cached
+	// clubs[clubId] entry — from setSessionClub/cacheClubInfo — even after
+	// its own session token has gone missing or stopped working (cleared
+	// storage, expired token, backend restart). When that's the case, we can
+	// still prefill the join code so getting back in is a one-field form,
+	// not a dead end asking someone to track down the host again.
+	let rejoinClub = $derived(
 		(() => {
 			const clubId = $identity.clubBySession[sessionId];
-			return clubId ? identity.club(clubId)?.joinCode : undefined;
+			return clubId ? identity.club(clubId) : undefined;
 		})(),
 	);
-	let rejoinLink = $derived(rejoinCode ? `/join?code=${rejoinCode}` : "/join");
+	let rejoinLink = $derived(
+		rejoinClub
+			? `/join?session=${sessionId}&code=${rejoinClub.joinCode}`
+			: `/join?session=${sessionId}`,
+	);
 </script>
 
 <svelte:head>
@@ -872,16 +852,16 @@
 		<section class="container rise-in">
 			<div class="card">
 				<p class="muted">
-					{rejoinCode
-						? "You're signed out on this device. Enter your club code to get back in — you'll be seated in the live session, with your rating and history intact."
-						: "You'll need to join this session with your club code."}
+					{rejoinClub
+						? "You're signed out on this device. Enter your name again to get back in — your rating and history pick up right where they left off."
+						: "You'll need to join this session to see it."}
 				</p>
 				<a
 					href={rejoinLink}
 					class="btn btn-primary"
 					style="margin-top:16px;"
 				>
-					{rejoinCode ? "Sign back in" : "Join this session"}
+					{rejoinClub ? "Sign back in" : "Join this session"}
 				</a>
 			</div>
 		</section>
@@ -898,8 +878,8 @@
 			<div class="card">
 				<p class="muted">{loadError ?? "Session not found."}</p>
 				<p class="muted small" style="margin-top:8px;">
-					If your device got signed out, rejoining with your club
-					code will seat you in the live session.
+					If your device got signed out, you can rejoin instead of
+					starting over.
 				</p>
 				<a
 					href={rejoinLink}
@@ -909,7 +889,7 @@
 			</div>
 		</section>
 	{:else}
-		<section class="container-wide rise-in" class:host-clearance={isHost}>
+		<section class="container-wide rise-in">
 			<header class="head spread">
 				<div>
 					<div class="row">
@@ -1353,83 +1333,86 @@
 			{/if}
 		</section>
 
+		{#if editRatingPlayerId}
+			<div
+				class="hud-backdrop"
+				onclick={() => (editRatingPlayerId = null)}
+				role="presentation"
+			></div>
+			<div class="card card-pop modal-dialog">
+				<h3 style="margin-bottom: 12px;">
+					Update Rating &amp; Rank for {name(editRatingPlayerId)}
+				</h3>
+				<div class="field">
+					<label for="rank-selector">Select Rank Category</label>
+					<select
+						id="rank-selector"
+						class="select"
+						bind:value={editRankVal}
+						onchange={(e) => onRankSelectChange(e.currentTarget.value)}
+					>
+						{#each RANK_TIERS as tier}
+							<option value={tier.rank}>{tier.label}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="field">
+					<label for="rating-input">Rating Value</label>
+					<input
+						id="rating-input"
+						type="number"
+						class="input mono"
+						bind:value={editRatingVal}
+					/>
+				</div>
+				<div class="row spread" style="margin-top: 16px;">
+					<button
+						class="btn btn-ghost"
+						onclick={() => (editRatingPlayerId = null)}>Cancel</button
+					>
+					<button
+						class="btn btn-primary"
+						onclick={savePlayerRating}
+						disabled={savingRating}
+					>
+						{savingRating ? "Saving…" : "Save Rating"}
+					</button>
+				</div>
+			</div>
+		{/if}
+
 		<!-- Rendered outside the section above (not nested inside a `.rise-in`
 	     entrance-animated ancestor) so `position: fixed` here is actually
 	     relative to the viewport — a finished CSS transform animation still
 	     establishes a containing block even at its `translateY(0)` end state. -->
 		{#if isHost}
-			<!-- Labeled dock instead of an unlabeled corner dot: every tool is
-			     one tap away and impossible to miss. While the panel is open on
-			     wide screens it doubles as the tab switcher. On phones the
-			     bottom sheet covers this area, so it hides while open. -->
-			<nav
-				class="host-dock"
-				class:attention={!dockSeen && !hudOpen}
-				class:dock-raised={hudOpen}
-				class:dock-hidden-mobile={hudOpen}
-				aria-label="Host tools"
+			<button
+				class="hud-fab"
+				onclick={() => openHud()}
+				aria-label="Open host tools"
+				title="Tap or swipe up from the bottom edge"
 			>
-				<span class="dock-title">Host</span>
-				<button
-					type="button"
-					class="dock-btn"
-					class:active={hudOpen && activeTool === "match"}
-					onclick={() => toggleHud("match")}
+				<svg
+					viewBox="0 0 24 24"
+					width="26"
+					height="26"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
 				>
-					<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
-					</svg>
-					Match
-					{#if waiting.length}
-						<span class="dock-count">{waiting.length}</span>
-					{/if}
-				</button>
-				<button
-					type="button"
-					class="dock-btn"
-					class:active={hudOpen && activeTool === "courts"}
-					onclick={() => toggleHud("courts")}
-				>
-					<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<rect x="3" y="3" width="7" height="7" rx="1" />
-						<rect x="14" y="3" width="7" height="7" rx="1" />
-						<rect x="3" y="14" width="7" height="7" rx="1" />
-						<rect x="14" y="14" width="7" height="7" rx="1" />
-					</svg>
-					Courts
-					{#if availableCourts.length}
-						<span class="dock-count cyan">{availableCourts.length}</span>
-					{/if}
-				</button>
-				<button
-					type="button"
-					class="dock-btn"
-					class:active={hudOpen && activeTool === "invite"}
-					onclick={() => toggleHud("invite")}
-				>
-					<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-						<circle cx="9" cy="7" r="4" />
-						<line x1="19" y1="8" x2="19" y2="14" />
-						<line x1="22" y1="11" x2="16" y2="11" />
-					</svg>
-					Invite
-				</button>
-				<button
-					type="button"
-					class="dock-btn"
-					class:active={hudOpen && activeTool === "club"}
-					onclick={() => toggleHud("club")}
-				>
-					<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-						<circle cx="9" cy="7" r="4" />
-						<path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-						<path d="M16 3.13a4 4 0 0 1 0 7.75" />
-					</svg>
-					Club
-				</button>
-			</nav>
+					<path d="M6 3h9a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6" />
+					<path d="M6 3v18" />
+					<circle
+						cx="15"
+						cy="12"
+						r="1"
+						fill="currentColor"
+						stroke="none"
+					/>
+				</svg>
+			</button>
 		{/if}
 
 		{#if hudOpen}
@@ -1439,17 +1422,7 @@
 				role="presentation"
 			></div>
 			<div class="hud-panel rise-in">
-				<div class="hud-panel-head">
-					<div class="spread">
-						<strong class="panel-title">Host tools</strong>
-						<button
-							type="button"
-							class="link-btn panel-close"
-							onclick={() => (hudOpen = false)}
-							aria-label="Close host tools">✕</button
-						>
-					</div>
-					<div class="tool-tabs" role="tablist" aria-label="Host tools">
+				<div class="tool-tabs" role="tablist" aria-label="Host tools">
 					<button
 						class:active={activeTool === "match"}
 						onclick={() => (activeTool = "match")}>Match</button
@@ -1466,7 +1439,6 @@
 						class:active={activeTool === "club"}
 						onclick={() => (activeTool = "club")}>Club</button
 					>
-					</div>
 				</div>
 				<div class="hud-panel-body">
 					{#if activeTool === "invite"}
@@ -1744,17 +1716,20 @@
 										Need at least 4 waiting players ({waiting.length}
 										now).
 									</p>
-								{:else if session.assignment_mode === "AUTOMATIC"
-									&& session.auto_fill_enabled}
-									<!-- Auto-fill owns the courts — no manual
-									assignment controls while it's on. -->
-									<p class="muted small">
-										Auto-fill is on — open courts fill
-										themselves as soon as 4 players are
-										waiting. Turn it off to assign manually.
-									</p>
-								{:else if session.assignment_mode === "AUTOMATIC"}
+								{:else if session.assignment_mode === "AUTOMATIC" && session.auto_fill_enabled}
 									<div class="stack">
+										<div class="row wrap">
+											<select
+												class="select"
+												bind:value={autoCourtId}
+											>
+												{#each availableCourts as c}
+													<option value={c.id}
+														>{c.name}</option
+													>
+												{/each}
+											</select>
+										</div>
 										<button
 											class="btn btn-primary"
 											onclick={generateAuto}
@@ -1765,9 +1740,8 @@
 												: "Generate match"}
 										</button>
 										<p class="faint small">
-											The engine picks the fairest 4 from
-											the queue; you review teams and pick
-											a court before it starts.
+											Picks the fairest 4 from the queue
+											automatically.
 										</p>
 									</div>
 								{:else}
@@ -2074,151 +2048,23 @@
 
 	/* ---------- host tools HUD (floating, out of the main flow) ---------- */
 
-	/* ---------- host tools dock ---------- */
-
-	/* The dock is fixed over the viewport bottom — reserve space under the
-	   content so the last section can scroll fully clear of it. */
-	.host-clearance {
-		padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
-	}
-
-	.host-dock {
+	.hud-fab {
 		position: fixed;
-		left: 50%;
-		transform: translateX(-50%);
-		bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+		right: 20px;
+		bottom: calc(20px + env(safe-area-inset-bottom, 0px));
 		z-index: 60;
-		display: flex;
+		width: 56px;
+		height: 56px;
+		display: inline-flex;
 		align-items: center;
-		gap: 2px;
-		padding: 6px;
-		border: 2px solid var(--accent);
+		justify-content: center;
+		border: 2px solid var(--border);
 		border-radius: 100px;
-		background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
-		backdrop-filter: blur(12px);
+		background: var(--accent);
+		color: var(--accent-contrast);
 		box-shadow: var(--shadow-pink);
-		max-width: calc(100vw - 24px);
-	}
-
-	/* first-run pulse so a new host notices the controls */
-	.host-dock.attention {
-		animation: dock-glow 1.7s ease-in-out infinite;
-	}
-
-	@keyframes dock-glow {
-		0%,
-		100% {
-			box-shadow: var(--shadow-pink);
-		}
-		50% {
-			box-shadow:
-				0 0 0 10px rgba(255, 62, 165, 0.14),
-				var(--shadow-pink);
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.host-dock.attention {
-			animation: none;
-		}
-	}
-
-	.dock-title {
-		padding: 8px 14px;
-		border-radius: 100px;
-		background: var(--accent);
-		color: var(--accent-contrast);
-		font-size: 0.62rem;
-		font-weight: 800;
-		text-transform: uppercase;
-		letter-spacing: 0.1em;
-		margin-right: 4px;
-	}
-
-	.dock-btn {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 3px;
-		border: none;
-		background: transparent;
-		color: var(--text-dim);
-		padding: 7px 14px;
-		border-radius: 100px;
-		font-size: 0.62rem;
-		font-weight: 800;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
 		cursor: pointer;
-		transition:
-			color 0.15s ease,
-			background-color 0.15s ease,
-			transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-	}
-
-	.dock-btn:hover {
-		color: var(--text);
-		transform: translateY(-2px);
-	}
-
-	.dock-btn.active {
-		background: var(--accent);
-		color: var(--accent-contrast);
-	}
-
-	.dock-count {
-		position: absolute;
-		top: -3px;
-		right: 6px;
-		min-width: 17px;
-		height: 17px;
-		padding: 0 4px;
-		display: grid;
-		place-items: center;
-		border-radius: 100px;
-		background: var(--pop-pink);
-		border: 2px solid var(--bg-elevated);
-		color: #fff;
-		font-size: 0.6rem;
-		line-height: 1;
-	}
-
-	.dock-count.cyan {
-		background: var(--pop-cyan);
-		color: #000;
-	}
-
-	/* While the panel is open: raise above the backdrop on wide screens so
-	   the dock doubles as the tab switcher (parked bottom-left, out of the
-	   side panel's way), and hide on phones where the sheet covers it. */
-	.host-dock.dock-raised {
-		z-index: 72;
-	}
-
-	@media (max-width: 719.98px) {
-		.host-dock.dock-hidden-mobile {
-			display: none;
-		}
-	}
-
-	@media (min-width: 720px) {
-		.host-dock.dock-raised {
-			left: 20px;
-			transform: none;
-		}
-	}
-
-	/* Narrow phones: drop the HOST chip and tighten padding so the four
-	   labeled tabs always fit without clipping. */
-	@media (max-width: 420px) {
-		.dock-title {
-			display: none;
-		}
-
-		.dock-btn {
-			padding: 7px 11px;
-		}
+		touch-action: pan-y;
 	}
 
 	.tool-tabs {
@@ -2294,28 +2140,10 @@
 	.hud-panel-head {
 		position: sticky;
 		top: 0;
-		z-index: 2;
 		background: var(--bg-elevated);
-		padding: 14px 0 12px;
-		margin: -16px 0 4px;
+		padding-bottom: 12px;
+		margin-bottom: 4px;
 		border-bottom: 1px solid var(--border-soft);
-	}
-
-	.panel-title {
-		font-family: var(--font-display);
-		font-weight: 400;
-		font-size: 1.1rem;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-	}
-
-	.panel-close {
-		font-size: 1rem;
-		color: var(--text-dim);
-	}
-
-	.panel-close:hover {
-		color: var(--danger);
 	}
 
 	.hud-panel-body {
@@ -2558,57 +2386,6 @@
 
 	.match-row:hover {
 		border-color: var(--text-dim);
-	}
-
-	/* live match card: accent edge + traveling shimmer so "playing" reads
-	   as motion even from across the gym */
-	.match-card-live {
-		position: relative;
-		overflow: hidden;
-		border-left: 3px solid var(--accent);
-		transition:
-			transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-			box-shadow 0.22s ease,
-			border-color 0.22s ease;
-	}
-
-	.match-card-live::before {
-		content: '';
-		position: absolute;
-		top: 0;
-		bottom: 0;
-		left: -60%;
-		width: 45%;
-		background: linear-gradient(
-			100deg,
-			transparent,
-			color-mix(in srgb, var(--accent) 10%, transparent),
-			transparent
-		);
-		animation: court-sweep 2.8s ease-in-out infinite;
-		pointer-events: none;
-	}
-
-	.match-card-live:hover {
-		transform: translateY(-3px) translateX(2px);
-		border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
-		box-shadow: var(--shadow-sm);
-	}
-
-	@keyframes court-sweep {
-		0% {
-			left: -60%;
-		}
-		55%,
-		100% {
-			left: 120%;
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.match-card-live::before {
-			animation: none;
-		}
 	}
 
 	.court-card-link {

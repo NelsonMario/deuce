@@ -220,6 +220,9 @@ func (s *Service) JoinSession(ctx context.Context, sessionID uuid.UUID, in JoinS
 	if !in.Gender.Valid() {
 		return JoinSessionResult{}, apperr.Validation("invalid gender")
 	}
+	// Accept any casing, matching JoinClub — the input only *looks*
+	// uppercase on clients (CSS text-transform).
+	in.JoinCode = strings.ToUpper(strings.TrimSpace(in.JoinCode))
 
 	sess, err := s.GetSession(ctx, sessionID)
 	if err != nil {

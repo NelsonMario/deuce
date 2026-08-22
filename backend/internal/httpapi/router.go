@@ -56,6 +56,9 @@ func NewApp(d Deps) *fiber.App {
 
 	clubs := v1.Group("/clubs")
 	clubs.Post("/", d.Handlers.CreateClub)
+	// Static path registered before the :clubId routes; Fiber matches
+	// static segments first regardless, but keep the ordering obvious.
+	clubs.Post("/resolve", d.Handlers.ResolveClub)
 	clubs.Post("/:clubId/join", d.Handlers.JoinClub)
 	clubs.Get("/:clubId", requireAuth, d.Handlers.GetClub)
 	clubs.Get("/:clubId/me", requireAuth, d.Handlers.GetMyRole)

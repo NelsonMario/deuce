@@ -5,6 +5,7 @@ import (
 
 	"deuce/backend/internal/club"
 	"deuce/backend/internal/player"
+	"deuce/backend/internal/session"
 )
 
 type CreateClubRequest struct {
@@ -74,6 +75,57 @@ type JoinClubRequest struct {
 	Gender      string `json:"gender" validate:"required,oneof=MALE FEMALE"`
 	// DeviceID is optional (v2). See CreateClubRequest.
 	DeviceID string `json:"device_id" validate:"omitempty,max=100"`
+}
+
+// ResolveClubRequest carries just a club join code — how a player joins
+// with nothing but the code the host shared, no session link or club ID.
+type ResolveClubRequest struct {
+	JoinCode string `json:"join_code" validate:"required,max=12"`
+}
+
+// ActiveSessionDTO is the minimal session info the resolve response needs:
+// which live session (if any) a club-code joiner should land in.
+type ActiveSessionDTO struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type ResolveClubResponse struct {
+	Club ClubDTO `json:"club"`
+	// ActiveSessions lists the club's ACTIVE sessions, newest first. Empty
+	// when nothing is running — the client then drops the player on the
+	// club page instead of a specific session.
+	ActiveSessions []ActiveSessionDTO `json:"active_sessions"`
+}
+
+// ResolveClub looks up a club by join code and reports its active sessions.
+// Unauthenticated by design: the join code is the secret, so anyone holding
+// it may already join the club; this endpoint only saves them from needing
+// a separate club ID or invite link. Rate limiting still applies globally.
+func (h *Handlers) ResolveClub(c *fiber.Ctx) error {
+	var req ResolveClubRequest
+	if err := BindAndValidate(c, &req); err != nil {
+		return HandleError(c, err)
+	}
+
+	cl, err := h.Clubs.GetByJoinCode(c.UserContext(), req.JoinCode)
+	if err != nil {
+		return HandleError(c, err)
+	}
+
+	sessions, err := h.Sessions.ListByClub(c.UserContext(), cl.ID)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	active := make([]ActiveSessionDTO, 0, len(sessions))
+	for _, s := range sessions {
+		if s.Status != session.StatusActive {
+			continue
+		}
+		active = append(active, ActiveSessionDTO{ID: s.ID.String(), Name: s.Name})
+	}
+
+	return c.JSON(ResolveClubResponse{Club: toClubDTO(cl), ActiveSessions: active})
 }
 
 type JoinClubResponse struct {

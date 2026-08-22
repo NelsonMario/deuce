@@ -98,6 +98,16 @@ export const api = {
 		});
 	},
 
+	/** Resolves a club join code (no auth — the code is the credential) to
+	 * its club plus any ACTIVE session, so a code-only joiner can be dropped
+	 * straight into the live session instead of hunting for an invite link. */
+	resolveClub (payload: { join_code: string }) {
+		return request<{ club: Club; active_sessions: { id: string; name: string }[] }>(
+			'/clubs/resolve',
+			{ method: 'POST', body: payload }
+		);
+	},
+
 	getClub (clubId: string, token: string) {
 		return request<Club>(`/clubs/${clubId}`, { token });
 	},

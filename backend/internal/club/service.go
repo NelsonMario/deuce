@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -95,6 +96,25 @@ func (s *Service) CreateClub(ctx context.Context, in CreateClubInput) (CreateClu
 	}, nil
 }
 
+// GetByJoinCode resolves a human-typed join code to its club without
+// authentication — the unguessable code IS the credential here (same trust
+// level as JoinClub itself). Input is normalized so lowercase or padded
+// entries still resolve.
+func (s *Service) GetByJoinCode(ctx context.Context, joinCode string) (Club, error) {
+	code := strings.ToUpper(strings.TrimSpace(joinCode))
+	if code == "" {
+		return Club{}, apperr.Validation("join code is required")
+	}
+	c, err := s.repo.GetByJoinCode(ctx, code)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return Club{}, apperr.NotFound("club")
+		}
+		return Club{}, apperr.Internal(err)
+	}
+	return c, nil
+}
+
 type JoinClubInput struct {
 	JoinCode    string
 	DisplayName string
@@ -116,6 +136,10 @@ func (s *Service) JoinClub(ctx context.Context, clubID uuid.UUID, in JoinClubInp
 	if !in.Gender.Valid() {
 		return Club{}, AuthenticatedPlayer{}, apperr.Validation("invalid gender")
 	}
+	// Codes are generated uppercase; clients render the input uppercase via
+	// CSS but that doesn't change what's actually typed, so accept any case
+	// here rather than failing every lowercase entry.
+	in.JoinCode = strings.ToUpper(strings.TrimSpace(in.JoinCode))
 
 	c, err := s.repo.GetByID(ctx, clubID)
 	if err != nil {

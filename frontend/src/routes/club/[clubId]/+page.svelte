@@ -7,7 +7,8 @@
 	import { playerCache, ensurePlayers } from "$lib/stores/players";
 	import PullToRefresh from "$lib/components/PullToRefresh.svelte";
 	import { longpress } from "$lib/utils/gestures";
-	import type { AssignmentMode, Club, Member, Session } from "$lib/types";
+	import { reveal } from "$lib/actions/motion";
+	import type { AssignmentMode, Club, Gender, Member, Session } from "$lib/types";
 
 	let clubId = $derived(page.params.clubId ?? "");
 	// Reading $identity directly (not just calling identity.* methods, which
@@ -35,6 +36,11 @@
 	// genuinely deleted club — so we know it's worth offering the rejoin
 	// form rather than just an error message.
 	let tokenRejected = $state(false);
+	// True when the server confirmed this club doesn't exist (404) — the
+	// stale local entry has been pruned and the rejoin form (with code
+	// field) is offered so the user can enter their current club's code,
+	// which redirects to the live club.
+	let clubMissing = $state(false);
 
 	// ---- rejoin (relogin) ----
 	// There's no session to go through here — this route only ever matters
@@ -44,33 +50,95 @@
 	// player and role (see internal/device + club.Service.JoinClub) — a real
 	// relogin, not a fresh, roleless player.
 	let rejoinName = $state("");
+	let rejoinGender = $state<Gender>("MALE");
 	let rejoinCodeInput = $state("");
+	// Set when the cached join code was rejected, so the form stops hiding
+	// the code field and lets the user type the right one.
+	let codeRejected = $state(false);
 	let rejoining = $state(false);
 
-	async function rejoin(e: SubmitEvent) {
-		e.preventDefault();
-		const code = (rejoinCode ?? rejoinCodeInput).trim();
-		if (!code || !rejoinName.trim()) return;
+	// Prefill from whatever profile this device last joined with — relogin
+	// becomes one tap instead of retyping name/gender.
+	$effect(() => {
+		const p = $identity.lastProfile;
+		if (p && !rejoinName) {
+			rejoinName = p.displayName;
+			rejoinGender = p.gender;
+		}
+	});
+
+	async function doJoin(code: string, displayName: string, gender: Gender, silent: boolean) {
 		rejoining = true;
 		try {
-			const { you } = await api.joinClub(clubId, {
-				join_code: code,
-				display_name: rejoinName.trim(),
-				gender: "MALE",
+			const { club: joined, you } = await api.joinClub(clubId, {
+				join_code: code.trim().toUpperCase(),
+				display_name: displayName.trim(),
+				gender,
 			});
+			// Refresh the cached name/code from the server's answer — storage
+			// must never outlive the truth.
+			identity.cacheClubInfo(joined);
 			identity.rememberClubMembership(clubId, you.token, you.player);
 			await identity.ensureCoHostChecked(clubId, you.token);
 			toast.success(`Welcome back, ${you.player.display_name}.`);
+			return true;
 		} catch (err) {
-			toast.error(
-				err instanceof ApiError
-					? err.message
-					: "Couldn't sign back in.",
-			);
+			codeRejected = true;
+			// The club in this URL may no longer exist server-side (fresh
+			// database, deleted club). The join CODE knows where home is now:
+			// resolve it and follow it to the live club instead of failing on
+			// a stale ID forever.
+			if (err instanceof ApiError && err.status === 404) {
+				identity.forgetClub(clubId);
+				try {
+					const resolved = await api.resolveClub({
+						join_code: code.trim().toUpperCase(),
+					});
+					toast.info(`${resolved.club.name} is your club now.`);
+					await goto(`/club/${resolved.club.id}`);
+					return false;
+				} catch {
+					if (!silent) {
+						toast.error(
+							"That club doesn't exist anymore — enter your current club's code.",
+						);
+					}
+					return false;
+				}
+			}
+			if (!silent) {
+				toast.error(
+					err instanceof ApiError ? err.message : "Couldn't sign back in.",
+				);
+			}
+			return false;
 		} finally {
 			rejoining = false;
 		}
 	}
+
+	async function rejoin(e: SubmitEvent) {
+		e.preventDefault();
+		const code = (rejoinCode && !codeRejected ? rejoinCode : rejoinCodeInput);
+		if (!code.trim() || !rejoinName.trim()) return;
+		await doJoin(code, rejoinName, rejoinGender, false);
+	}
+
+	// Zero-tap relogin: the moment this page loads signed-out with both a
+	// cached club code AND a remembered profile, just try it — the server's
+	// device_id recognition does the rest. Only a failure surfaces the form.
+	let autoRejoinAttempted = $state(false);
+
+	$effect(() => {
+		if (loading || myToken || autoRejoinAttempted || rejoining) return;
+		autoRejoinAttempted = true;
+		const p = $identity.lastProfile;
+		if (rejoinCode && !codeRejected && p?.displayName) {
+			void doJoin(rejoinCode, p.displayName, p.gender, true).then((ok) => {
+				if (!ok) toast.info("Couldn't sign you in automatically — enter your details below.");
+			});
+		}
+	});
 
 	async function load() {
 		if (!myToken) {
@@ -86,12 +154,21 @@
 			await identity.ensureCoHostChecked(clubId, myToken);
 			loadError = null;
 			tokenRejected = false;
+			clubMissing = false;
 		} catch (err) {
 			loadError =
 				err instanceof ApiError
 					? err.message
 					: "Could not load this club.";
 			tokenRejected = err instanceof ApiError && err.status === 401;
+			// The server confirms this club no longer exists — stop trusting
+			// the stale local entry (links, cached code) and offer the
+			// code-based way back in.
+			if (err instanceof ApiError && err.status === 404) {
+				clubMissing = true;
+				identity.forgetClub(clubId);
+				loadError = "This club no longer exists.";
+			}
 		} finally {
 			loading = false;
 		}
@@ -211,7 +288,7 @@
 
 {#snippet rejoinForm()}
 	<form onsubmit={rejoin} class="stack" style="margin-top:16px;">
-		{#if !rejoinCode}
+		{#if !rejoinCode || codeRejected}
 			<div class="field">
 				<label for="rejoinCode">Join code</label>
 				<input
@@ -236,6 +313,30 @@
 				autocomplete="off"
 				required
 			/>
+		</div>
+		<div class="field">
+			<label for="rejoinGender">Gender</label>
+			<div
+				class="segmented"
+				role="radiogroup"
+				aria-label="Gender"
+				id="rejoinGender"
+			>
+				<button
+					type="button"
+					class:active={rejoinGender === "MALE"}
+					onclick={() => (rejoinGender = "MALE")}
+				>
+					Male
+				</button>
+				<button
+					type="button"
+					class:active={rejoinGender === "FEMALE"}
+					onclick={() => (rejoinGender = "FEMALE")}
+				>
+					Female
+				</button>
+			</div>
 		</div>
 		<button
 			type="submit"
@@ -273,7 +374,18 @@
 		<section class="container rise-in">
 			<div class="card">
 				<p class="muted">{loadError ?? "Club not found."}</p>
-				{#if tokenRejected}
+				{#if clubMissing}
+					<p class="muted small" style="margin-top:8px;">
+						This link points at a club that's gone. Enter your
+						current club's code below and we'll take you to the
+						right place — or start a new club.
+					</p>
+					{@render rejoinForm()}
+					<div class="row" style="margin-top:16px;">
+						<a href="/host" class="btn btn-ghost">Start a new club</a>
+						<a href="/join" class="btn btn-ghost">Join by code</a>
+					</div>
+				{:else if tokenRejected}
 					<p class="muted small" style="margin-top:8px;">
 						This device's saved login stopped working. Rejoining
 						below picks up the same player and role.
@@ -299,7 +411,7 @@
 			<h1>{club.name}</h1>
 			<p class="muted lead">Hosting{hostName ? ` as ${hostName}` : ""}</p>
 
-			<div class="card join-card">
+			<div class="card join-card card-pop" use:reveal={{ delay: 120 }}>
 				<span class="muted small">Join code · hold to copy</span>
 				<button
 					type="button"
@@ -457,7 +569,33 @@
 		letter-spacing: 0.08em;
 		color: var(--accent);
 		cursor: pointer;
-		transition: opacity 0.15s ease;
+		transition: opacity 0.15s ease, letter-spacing 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.code:hover {
+		letter-spacing: 0.16em;
+	}
+
+	.code-press {
+		animation: code-glow 2.6s ease-in-out infinite;
+	}
+
+	@keyframes code-glow {
+		0%,
+		100% {
+			text-shadow: 0 0 0 transparent;
+		}
+		50% {
+			text-shadow:
+				0 0 18px color-mix(in srgb, var(--accent) 45%, transparent),
+				2px 2px 0 var(--pop-pink);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.code-press {
+			animation: none;
+		}
 	}
 
 	.code.copied {

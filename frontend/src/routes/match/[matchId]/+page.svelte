@@ -178,10 +178,12 @@
 		margin-bottom: 16px;
 		font-size: 0.85rem;
 		color: var(--text-dim);
+		transition: color 0.15s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.back:hover {
 		color: var(--accent);
+		transform: translateX(-4px);
 	}
 
 	.match-card h1 {
@@ -213,6 +215,19 @@
 	.vs {
 		color: var(--text-faint);
 		font-size: 0.8rem;
+		text-transform: uppercase;
+		letter-spacing: 0.2em;
+		animation: vs-breathe 2.4s ease-in-out infinite;
+	}
+
+	@keyframes vs-breathe {
+		0%,
+		100% {
+			color: var(--text-faint);
+		}
+		50% {
+			color: var(--accent);
+		}
 	}
 
 	.final-score {
@@ -224,6 +239,27 @@
 		font-size: 2.4rem;
 		font-weight: 800;
 		display: block;
+		animation: score-pop 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	@keyframes score-pop {
+		from {
+			opacity: 0;
+			transform: scale(1.6);
+			filter: blur(4px);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1);
+			filter: blur(0);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.vs,
+		.score {
+			animation: none;
+		}
 	}
 
 	.score-form {

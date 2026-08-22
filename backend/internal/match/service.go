@@ -162,8 +162,10 @@ func (s *Service) PreviewAutomatic(ctx context.Context, in PreviewAutoInput) (*P
 // GenerateAutomatic implements spec section 13: lock every WAITING
 // session_player for the session, run the deterministic matchmaking
 // algorithm over them, lock the target court, and atomically create the
-// match + flip the chosen four players to PLAYING. The match is created but
-// NOT started — the host must call StartMatch explicitly.
+// match + flip the chosen four players to PLAYING. The match itself is
+// created but NOT started here — every caller (the host-triggered HTTP
+// handler and the auto-fill poller) starts it right after generation, so
+// in practice generated matches begin immediately.
 func (s *Service) GenerateAutomatic(ctx context.Context, in GenerateInput) (Match, error) {
 	lockKey := matchGenLockKey(in.SessionID, in.CourtID)
 	if !s.locker.TryAcquire(ctx, lockKey) {
