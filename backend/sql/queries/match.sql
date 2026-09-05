@@ -50,3 +50,17 @@ SET rating_after = sqlc.arg(rating_after), rating_change = sqlc.arg(rating_chang
 WHERE match_id = sqlc.arg(match_id) AND player_id = sqlc.arg(player_id)::uuid
 RETURNING *;
 
+-- name: DeleteMatchPlayer :exec
+DELETE FROM match_players WHERE match_id = sqlc.arg(match_id) AND player_id = sqlc.arg(player_id)::uuid;
+
+
+-- name: DeleteMatchPlayers :exec
+DELETE FROM match_players WHERE match_id = $1;
+
+-- name: UpdateMatchPlayerTeam :one
+UPDATE match_players
+SET team = sqlc.arg(team)
+WHERE match_id = sqlc.arg(match_id) AND player_id = sqlc.arg(player_id)::uuid
+RETURNING *;
+
+

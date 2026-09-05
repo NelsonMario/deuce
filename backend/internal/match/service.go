@@ -521,6 +521,151 @@ func mustSessionPlayerIDs(ctx context.Context, q *db.Queries, sessionID uuid.UUI
 	return out
 }
 
+type UpdateRosterInput struct {
+	MatchID               uuid.UUID
+	TeamA                 [2]uuid.UUID
+	TeamB                 [2]uuid.UUID
+	RemovedPlayerStatuses map[uuid.UUID]db.SessionPlayerStatus
+}
+
+// UpdateRoster atomically swaps, substitutes, or rearranges players in a match that is CREATED or PLAYING.
+func (s *Service) UpdateRoster(ctx context.Context, in UpdateRosterInput) (Match, error) {
+	ids := []uuid.UUID{in.TeamA[0], in.TeamA[1], in.TeamB[0], in.TeamB[1]}
+	if err := requireDistinct(ids); err != nil {
+		return Match{}, err
+	}
+
+	var result Match
+	err := database.RunInTx(ctx, s.pool, func(q *db.Queries) error {
+		m, err := q.LockMatchByID(ctx, in.MatchID)
+		if err != nil {
+			return apperr.NotFound("match")
+		}
+		if m.Status == db.MatchStatusFINISHED {
+			return apperr.InvalidState("cannot modify roster of a finished match")
+		}
+
+		existingPlayers, err := q.ListMatchPlayers(ctx, in.MatchID)
+		if err != nil {
+			return fmt.Errorf("list match players: %w", err)
+		}
+
+		existingMap := map[uuid.UUID]db.MatchPlayer{}
+		for _, p := range existingPlayers {
+			if p.PlayerID.Valid {
+				existingMap[uuid.UUID(p.PlayerID.Bytes)] = p
+			}
+		}
+
+		newMap := map[uuid.UUID]db.MatchTeam{
+			in.TeamA[0]: db.MatchTeamA,
+			in.TeamA[1]: db.MatchTeamA,
+			in.TeamB[0]: db.MatchTeamB,
+			in.TeamB[1]: db.MatchTeamB,
+		}
+
+		// Handle removed players
+		for pID := range existingMap {
+			if _, kept := newMap[pID]; !kept {
+				if err := q.DeleteMatchPlayer(ctx, db.DeleteMatchPlayerParams{
+					MatchID:  in.MatchID,
+					PlayerID: pID,
+				}); err != nil {
+					return fmt.Errorf("delete match player: %w", err)
+				}
+
+				sp, err := q.GetSessionPlayerBySessionAndPlayerForUpdate(ctx, db.GetSessionPlayerBySessionAndPlayerForUpdateParams{
+					SessionID: m.SessionID,
+					PlayerID:  pID,
+				})
+				if err != nil {
+					return fmt.Errorf("get session player: %w", err)
+				}
+
+				nextStatus := db.SessionPlayerStatusBREAK
+				if override, ok := in.RemovedPlayerStatuses[pID]; ok && string(override) != "" {
+					nextStatus = override
+				}
+				if _, err := q.SetSessionPlayerStatus(ctx, db.SetSessionPlayerStatusParams{
+					ID:     sp.ID,
+					Status: nextStatus,
+				}); err != nil {
+					return fmt.Errorf("update removed session player status: %w", err)
+				}
+			}
+		}
+
+		// Handle added and kept players
+		for _, pID := range ids {
+			team := newMap[pID]
+			existingMP, kept := existingMap[pID]
+
+			sp, err := q.GetSessionPlayerBySessionAndPlayerForUpdate(ctx, db.GetSessionPlayerBySessionAndPlayerForUpdateParams{
+				SessionID: m.SessionID,
+				PlayerID:  pID,
+			})
+			if err != nil {
+				return apperr.PlayerNotEligible("player is not part of this session")
+			}
+
+			if !kept {
+				if sp.Status == db.SessionPlayerStatusPLAYING {
+					return apperr.Conflict("player is already playing in another match")
+				}
+				if sp.Status == db.SessionPlayerStatusENDED {
+					return apperr.PlayerNotEligible("player has left the session")
+				}
+
+				r, err := q.GetPlayerRating(ctx, pID)
+				if err != nil {
+					return fmt.Errorf("get player rating: %w", err)
+				}
+
+				if _, err := q.AddMatchPlayer(ctx, db.AddMatchPlayerParams{
+					MatchID:      in.MatchID,
+					PlayerID:     pID,
+					Team:         team,
+					RatingBefore: pgtype.Float8{Float64: r.Rating, Valid: true},
+				}); err != nil {
+					return fmt.Errorf("add match player: %w", err)
+				}
+
+				if _, err := q.SetSessionPlayerStatus(ctx, db.SetSessionPlayerStatusParams{
+					ID:     sp.ID,
+					Status: db.SessionPlayerStatusPLAYING,
+				}); err != nil {
+					return fmt.Errorf("set session player playing: %w", err)
+				}
+			} else {
+				if existingMP.Team != team {
+					if _, err := q.UpdateMatchPlayerTeam(ctx, db.UpdateMatchPlayerTeamParams{
+						MatchID:  in.MatchID,
+						PlayerID: pID,
+						Team:     team,
+					}); err != nil {
+						return fmt.Errorf("update match player team: %w", err)
+					}
+				}
+			}
+		}
+
+		result = toMatch(m)
+		result.Players = ids
+		return nil
+	})
+
+	if err != nil {
+		if appErr, ok := apperr.As(err); ok {
+			return Match{}, appErr
+		}
+		return Match{}, apperr.Internal(err)
+	}
+
+	s.logger.Info("match_roster_updated", "match_id", in.MatchID)
+	return result, nil
+}
+
+
 // ============================================================
 // Start / Finish
 // ============================================================

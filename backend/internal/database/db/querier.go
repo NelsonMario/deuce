@@ -42,6 +42,8 @@ type Querier interface {
 	CreatePlayerRating(ctx context.Context, arg CreatePlayerRatingParams) (PlayerRating, error)
 	CreatePlayerToken(ctx context.Context, arg CreatePlayerTokenParams) (PlayerToken, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
+	DeleteMatchPlayer(ctx context.Context, arg DeleteMatchPlayerParams) error
+	DeleteMatchPlayers(ctx context.Context, matchID uuid.UUID) error
 	// match_players.player_id and session_players.player_id both ON DELETE SET
 	// NULL (see migration 000001), so deleting the guest here preserves the
 	// match/session history it took part in (score, team, rating deltas,
@@ -102,6 +104,7 @@ type Querier interface {
 	StartMatch(ctx context.Context, id uuid.UUID) (Match, error)
 	StartSession(ctx context.Context, id uuid.UUID) (Session, error)
 	UpdateClubMemberRole(ctx context.Context, arg UpdateClubMemberRoleParams) (ClubMember, error)
+	UpdateMatchPlayerTeam(ctx context.Context, arg UpdateMatchPlayerTeamParams) (MatchPlayer, error)
 	UpdatePlayerProfile(ctx context.Context, arg UpdatePlayerProfileParams) (Player, error)
 	UpdatePlayerRating(ctx context.Context, arg UpdatePlayerRatingParams) (PlayerRating, error)
 	UpdateSessionAssignmentMode(ctx context.Context, arg UpdateSessionAssignmentModeParams) (Session, error)

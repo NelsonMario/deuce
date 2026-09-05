@@ -278,3 +278,75 @@ func TestIntegration_ListMatchesBySession_EmbedsPlayers(t *testing.T) {
 		t.Fatalf("expected listed session match to embed 4 players, got %d", len(matches[0].Players))
 	}
 }
+
+func TestIntegration_UpdateRoster_SubstitutesPlayer(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	// Seed session with 5 players
+	sessionID, courtID := f.seedSessionWithPlayers(t, 5, 0)
+	m, err := f.matches.GenerateAutomatic(ctx, match.GenerateInput{
+		SessionID: sessionID, CourtID: courtID, Format: match.MenDoubles,
+	})
+	if err != nil {
+		t.Fatalf("generate match: %v", err)
+	}
+
+	// 4 players in match, 1 waiting
+	initialPlayers := m.Players
+	if len(initialPlayers) != 4 {
+		t.Fatalf("expected 4 players, got %d", len(initialPlayers))
+	}
+
+	sessionPlayers, err := f.sessions.ListSessionPlayers(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("list session players: %v", err)
+	}
+
+	var subPlayerID uuid.UUID
+	for _, sp := range sessionPlayers {
+		if sp.Status == session.PlayerWaiting && sp.PlayerID != nil {
+			subPlayerID = *sp.PlayerID
+			break
+		}
+	}
+	if subPlayerID == uuid.Nil {
+		t.Fatal("sub player not found")
+	}
+
+	// Replace initialPlayers[0] with subPlayerID
+	removedID := initialPlayers[0]
+	newTeamA := [2]uuid.UUID{subPlayerID, initialPlayers[1]}
+	newTeamB := [2]uuid.UUID{initialPlayers[2], initialPlayers[3]}
+
+	updatedMatch, err := f.matches.UpdateRoster(ctx, match.UpdateRosterInput{
+		MatchID: m.ID,
+		TeamA:   newTeamA,
+		TeamB:   newTeamB,
+	})
+	if err != nil {
+		t.Fatalf("update roster: %v", err)
+	}
+
+	if len(updatedMatch.Players) != 4 {
+		t.Fatalf("expected 4 players in updated match, got %d", len(updatedMatch.Players))
+	}
+
+	// Check removed player status (default BREAK)
+	spRemoved, err := f.sessions.GetSessionPlayerBySessionAndPlayer(ctx, sessionID, removedID)
+	if err != nil {
+		t.Fatalf("get removed session player: %v", err)
+	}
+	if spRemoved.Status != session.PlayerBreak {
+		t.Fatalf("expected removed player to be on BREAK, got %s", spRemoved.Status)
+	}
+
+	// Check substituted player status (PLAYING)
+	spSub, err := f.sessions.GetSessionPlayerBySessionAndPlayer(ctx, sessionID, subPlayerID)
+	if err != nil {
+		t.Fatalf("get sub session player: %v", err)
+	}
+	if spSub.Status != session.PlayerPlaying {
+		t.Fatalf("expected sub player to be PLAYING, got %s", spSub.Status)
+	}
+}

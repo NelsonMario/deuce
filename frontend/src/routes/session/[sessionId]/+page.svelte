@@ -30,6 +30,7 @@
 		MatchFormat,
 		Session,
 		SessionPlayer,
+		SessionPlayerStatus,
 	} from "$lib/types";
 
 	let sessionId = $derived(page.params.sessionId ?? "");
@@ -138,7 +139,9 @@
 
 	function courtActiveMatch(courtId: string): Match | undefined {
 		return matches.find(
-			(m) => m.court_id === courtId && (m.status === "PLAYING" || m.status === "CREATED"),
+			(m) =>
+				m.court_id === courtId &&
+				(m.status === "PLAYING" || m.status === "CREATED"),
 		);
 	}
 	let myPlayerId = $derived(
@@ -628,8 +631,10 @@
 		proposal = {
 			...proposal,
 			[team]: currentTeam,
-			ratingA: team === "a" ? teamAvgRating(currentTeam) : proposal.ratingA,
-			ratingB: team === "b" ? teamAvgRating(currentTeam) : proposal.ratingB,
+			ratingA:
+				team === "a" ? teamAvgRating(currentTeam) : proposal.ratingA,
+			ratingB:
+				team === "b" ? teamAvgRating(currentTeam) : proposal.ratingB,
 		};
 	}
 
@@ -855,7 +860,153 @@
 			return clubId ? identity.club(clubId)?.joinCode : undefined;
 		})(),
 	);
-	let rejoinLink = $derived(rejoinCode ? `/join?code=${rejoinCode}` : "/join");
+	let rejoinLink = $derived(
+		rejoinCode ? `/join?code=${rejoinCode}` : "/join",
+	);
+
+	// ---- Active Match Drag & Drop / Substitution ----
+	let activeMatchDragging = $state<{
+		matchId: string;
+		playerId: string;
+		team: "a" | "b";
+	} | null>(null);
+	let activeMatchDragPos = $state({ x: 0, y: 0 });
+	let activeMatchHoverSlot = $state<{
+		matchId: string;
+		playerId: string;
+		team: "a" | "b";
+	} | null>(null);
+
+	async function swapOrSubstituteActiveMatchPlayer(
+		matchId: string,
+		currentTeamA: [string, string],
+		currentTeamB: [string, string],
+		targetPlayerId: string,
+		replacementPlayerId: string,
+		removedNextStatus: SessionPlayerStatus = "BREAK",
+	) {
+		if (!hostToken || targetPlayerId === replacementPlayerId) return;
+
+		let newA = [...currentTeamA] as [string, string];
+		let newB = [...currentTeamB] as [string, string];
+
+		const inA = (id: string) => newA.includes(id);
+		const inB = (id: string) => newB.includes(id);
+
+		if (inA(replacementPlayerId) || inB(replacementPlayerId)) {
+			const replace = (
+				t: [string, string],
+				from: string,
+				to: string,
+			): [string, string] =>
+				t.map((id) => (id === from ? to : id)) as [string, string];
+
+			if (inA(targetPlayerId) && inB(replacementPlayerId)) {
+				newA = replace(newA, targetPlayerId, replacementPlayerId);
+				newB = replace(newB, replacementPlayerId, targetPlayerId);
+			} else if (inB(targetPlayerId) && inA(replacementPlayerId)) {
+				newB = replace(newB, targetPlayerId, replacementPlayerId);
+				newA = replace(newA, replacementPlayerId, targetPlayerId);
+			} else if (inA(targetPlayerId) && inA(replacementPlayerId)) {
+				newA = [replacementPlayerId, targetPlayerId];
+			} else if (inB(targetPlayerId) && inB(replacementPlayerId)) {
+				newB = [replacementPlayerId, targetPlayerId];
+			}
+		} else {
+			if (inA(targetPlayerId)) {
+				newA = newA.map((id) =>
+					id === targetPlayerId ? replacementPlayerId : id,
+				) as [string, string];
+			} else if (inB(targetPlayerId)) {
+				newB = newB.map((id) =>
+					id === targetPlayerId ? replacementPlayerId : id,
+				) as [string, string];
+			}
+		}
+
+		try {
+			await api.updateMatchRoster(
+				matchId,
+				{
+					team_a: newA,
+					team_b: newB,
+					removed_player_statuses: {
+						[targetPlayerId]: removedNextStatus,
+					},
+				},
+				hostToken,
+			);
+			rememberMatchTeams(matchId, newA, newB);
+			toast.success("Updated match lineup.");
+			await poll();
+		} catch (err) {
+			toast.error(
+				err instanceof ApiError
+					? err.message
+					: "Could not update match lineup.",
+			);
+		}
+	}
+
+	function startActiveMatchDrag(
+		e: PointerEvent,
+		matchId: string,
+		playerId: string,
+		team: "a" | "b",
+	) {
+		if (!isHost) return;
+		activeMatchDragging = { matchId, playerId, team };
+		activeMatchDragPos = { x: e.clientX, y: e.clientY };
+		window.addEventListener("pointermove", onActiveMatchDragMove);
+		window.addEventListener("pointerup", onActiveMatchDragEnd, {
+			once: true,
+		});
+	}
+
+	function onActiveMatchDragMove(e: PointerEvent) {
+		activeMatchDragPos = { x: e.clientX, y: e.clientY };
+		const el = document
+			.elementFromPoint(e.clientX, e.clientY)
+			?.closest<HTMLElement>("[data-active-match-slot]");
+		if (
+			el &&
+			el.dataset.activeMatchId &&
+			el.dataset.activeMatchPlayerId &&
+			el.dataset.activeMatchTeam
+		) {
+			activeMatchHoverSlot = {
+				matchId: el.dataset.activeMatchId,
+				playerId: el.dataset.activeMatchPlayerId,
+				team: el.dataset.activeMatchTeam as "a" | "b",
+			};
+		} else {
+			activeMatchHoverSlot = null;
+		}
+	}
+
+	function onActiveMatchDragEnd() {
+		window.removeEventListener("pointermove", onActiveMatchDragMove);
+		if (
+			activeMatchDragging &&
+			activeMatchHoverSlot &&
+			activeMatchDragging.matchId === activeMatchHoverSlot.matchId &&
+			activeMatchDragging.playerId !== activeMatchHoverSlot.playerId
+		) {
+			const teams = $matchTeams[activeMatchDragging.matchId];
+			if (teams) {
+				void swapOrSubstituteActiveMatchPlayer(
+					activeMatchDragging.matchId,
+					teams.a,
+					teams.b,
+					activeMatchDragging.playerId,
+					activeMatchHoverSlot.playerId,
+					"BREAK",
+				);
+			}
+		}
+		activeMatchDragging = null;
+		activeMatchHoverSlot = null;
+	}
 </script>
 
 <svelte:head>
@@ -898,8 +1049,8 @@
 			<div class="card">
 				<p class="muted">{loadError ?? "Session not found."}</p>
 				<p class="muted small" style="margin-top:8px;">
-					If your device got signed out, rejoining with your club
-					code will seat you in the live session.
+					If your device got signed out, rejoining with your club code
+					will seat you in the live session.
 				</p>
 				<a
 					href={rejoinLink}
@@ -999,54 +1150,415 @@
 				</div>
 			{/if}
 
-			<div class="spread section-header" style="margin-top:24px; margin-bottom:12px;">
-				<button type="button" class="section-toggle-btn" onclick={() => (currentMatchesCollapsed = !currentMatchesCollapsed)}>
-					<span class="toggle-arrow" class:collapsed={currentMatchesCollapsed}>▼</span>
-					<h2 class="section-title">Current Matches ({currentMatches.length})</h2>
+			{#if session.status === "ACTIVE" || session.status === "FINISHED"}
+				<div
+					class="card card-tight session-stats-bar row spread"
+					style="margin-top:12px; margin-bottom:16px;"
+				>
+					<div class="row gap-md wrap">
+						<div class="stat-item">
+							<span class="muted small">Players Joined</span>
+							<strong class="stat-val"
+								>{players.filter((p) => p.status !== "ENDED")
+									.length}</strong
+							>
+						</div>
+						<div class="stat-divider"></div>
+						<div class="stat-item">
+							<span class="muted small">Already Played</span>
+							<strong class="stat-val accent"
+								>{players.filter(
+									(p) =>
+										p.matches_played > 0 &&
+										p.status !== "ENDED",
+								).length} / {players.filter(
+									(p) => p.status !== "ENDED",
+								).length}</strong
+							>
+						</div>
+						<div class="stat-divider"></div>
+						<div class="stat-item">
+							<span class="muted small">Total Matches</span>
+							<strong class="stat-val">{matches.length}</strong>
+						</div>
+					</div>
+				</div>
+			{/if}
+
+			<div
+				class="spread section-header"
+				style="margin-top:24px; margin-bottom:12px;"
+			>
+				<button
+					type="button"
+					class="section-toggle-btn"
+					onclick={() =>
+						(currentMatchesCollapsed = !currentMatchesCollapsed)}
+				>
+					<span
+						class="toggle-arrow"
+						class:collapsed={currentMatchesCollapsed}>▼</span
+					>
+					<h2 class="section-title">
+						Current Matches ({currentMatches.length})
+					</h2>
 				</button>
 			</div>
 			{#if !currentMatchesCollapsed}
 				{#if currentMatches.length}
 					<div class="stack">
 						{#each currentMatches as m (m.id)}
-							<a href="/match/{m.id}?session={sessionId}" class="card match-card match-card-live" style="margin-bottom:8px;">
+							{@const teams = $matchTeams[m.id]}
+							<div
+								class="card match-card match-card-live"
+								style="margin-bottom:12px;"
+							>
 								<div class="spread">
 									<div class="row">
-										<span class="badge dot badge-live">Playing</span>
-										{#if courts.find(c => c.id === m.court_id)}
-											<strong>{courts.find(c => c.id === m.court_id)?.name}</strong>
+										<span class="badge dot badge-live"
+											>{statusLabel(m.status)}</span
+										>
+										{#if courts.find((c) => c.id === m.court_id)}
+											<strong
+												>{courts.find(
+													(c) => c.id === m.court_id,
+												)?.name}</strong
+											>
 										{/if}
 									</div>
-									<span class="btn btn-ghost btn-sm">View Match →</span>
+									<a
+										href="/match/{m.id}?session={sessionId}"
+										class="btn btn-ghost btn-sm"
+										>View Match →</a
+									>
 								</div>
-								{#if $matchTeams[m.id]}
-									<div class="proposal" style="margin-top:12px;">
-										<div class="team">
-											<span class="faint small">Team A</span>
-											<p>
-												{name($matchTeams[m.id].a[0])} &amp; {name($matchTeams[m.id].a[1])}
-											</p>
+
+								{#if teams}
+									<div
+										class="proposal"
+										style="margin-top:12px;"
+									>
+										<div
+											class="team"
+											class:drop-hover={activeMatchHoverSlot?.matchId ===
+												m.id &&
+												activeMatchHoverSlot?.team ===
+													"a" &&
+												activeMatchDragging?.team ===
+													"b"}
+										>
+											<span class="faint small"
+												>Team A</span
+											>
+											<div
+												class="team-players stack gap-xs"
+												style="margin-top:4px;"
+											>
+												{#each teams.a as pId (pId)}
+													{@const sp = players.find(
+														(p) =>
+															p.player_id === pId,
+													)}
+													<div
+														class="row gap-xs wrap align-center"
+														data-active-match-slot
+														data-active-match-id={m.id}
+														data-active-match-player-id={pId}
+														data-active-match-team="a"
+													>
+														{#if isHost}
+															<button
+																type="button"
+																class="drag-chip active-match-chip"
+																class:dragging-self={activeMatchDragging?.playerId ===
+																	pId}
+																onpointerdown={(
+																	e,
+																) =>
+																	startActiveMatchDrag(
+																		e,
+																		m.id,
+																		pId,
+																		"a",
+																	)}
+																title="Drag to swap player"
+															>
+																⋮⋮ {name(pId)}
+																<span
+																	class="mono small faint"
+																	>({sp?.matches_played ??
+																		0} played)</span
+																>
+															</button>
+															<select
+																class="select select-sm mini-replace-select"
+																value={pId}
+																onchange={(
+																	e,
+																) => {
+																	if (
+																		e
+																			.currentTarget
+																			.value !==
+																		pId
+																	) {
+																		const removedNext =
+																			confirm(
+																				`Move ${name(pId)} to BREAK? Click OK for Break, Cancel for Waiting queue.`,
+																			)
+																				? "BREAK"
+																				: "WAITING";
+																		swapOrSubstituteActiveMatchPlayer(
+																			m.id,
+																			teams.a,
+																			teams.b,
+																			pId,
+																			e
+																				.currentTarget
+																				.value,
+																			removedNext,
+																		);
+																	}
+																}}
+																title="Substitute player"
+															>
+																<option
+																	value={pId}
+																	>Sub player…</option
+																>
+																<optgroup
+																	label="Queue / Waiting"
+																>
+																	{#each waiting.filter((wp) => wp.player_id !== pId) as wp}
+																		<option
+																			value={wp.player_id}
+																		>
+																			Sub: {name(
+																				wp.player_id,
+																			)} ({wp.matches_played}
+																			{wp.matches_played ===
+																			1
+																				? "game"
+																				: "games"})
+																			[{getRank(
+																				rating(
+																					wp.player_id,
+																				),
+																			)}]
+																		</option>
+																	{/each}
+																</optgroup>
+																<optgroup
+																	label="On Break"
+																>
+																	{#each onBreak.filter((bp) => bp.player_id !== pId) as bp}
+																		<option
+																			value={bp.player_id}
+																		>
+																			Sub: {name(
+																				bp.player_id,
+																			)} ({bp.matches_played}
+																			{bp.matches_played ===
+																			1
+																				? "game"
+																				: "games"})
+																			[{getRank(
+																				rating(
+																					bp.player_id,
+																				),
+																			)}]
+																		</option>
+																	{/each}
+																</optgroup>
+															</select>
+														{:else}
+															<span class="pname">
+																{name(pId)}
+																<span
+																	class="mono small faint"
+																	>({sp?.matches_played ??
+																		0} played)</span
+																>
+															</span>
+														{/if}
+													</div>
+												{/each}
+											</div>
 										</div>
+
 										<span class="vs">vs</span>
-										<div class="team">
-											<span class="faint small">Team B</span>
-											<p>
-												{name($matchTeams[m.id].b[0])} &amp; {name($matchTeams[m.id].b[1])}
-											</p>
+
+										<div
+											class="team"
+											class:drop-hover={activeMatchHoverSlot?.matchId ===
+												m.id &&
+												activeMatchHoverSlot?.team ===
+													"b" &&
+												activeMatchDragging?.team ===
+													"a"}
+										>
+											<span class="faint small"
+												>Team B</span
+											>
+											<div
+												class="team-players stack gap-xs"
+												style="margin-top:4px;"
+											>
+												{#each teams.b as pId (pId)}
+													{@const sp = players.find(
+														(p) =>
+															p.player_id === pId,
+													)}
+													<div
+														class="row gap-xs wrap align-center"
+														data-active-match-slot
+														data-active-match-id={m.id}
+														data-active-match-player-id={pId}
+														data-active-match-team="b"
+													>
+														{#if isHost}
+															<button
+																type="button"
+																class="drag-chip active-match-chip"
+																class:dragging-self={activeMatchDragging?.playerId ===
+																	pId}
+																onpointerdown={(
+																	e,
+																) =>
+																	startActiveMatchDrag(
+																		e,
+																		m.id,
+																		pId,
+																		"b",
+																	)}
+																title="Drag to swap player"
+															>
+																⋮⋮ {name(pId)}
+																<span
+																	class="mono small faint"
+																	>({sp?.matches_played ??
+																		0} played)</span
+																>
+															</button>
+															<select
+																class="select select-sm mini-replace-select"
+																value={pId}
+																onchange={(
+																	e,
+																) => {
+																	if (
+																		e
+																			.currentTarget
+																			.value !==
+																		pId
+																	) {
+																		const removedNext =
+																			confirm(
+																				`Move ${name(pId)} to BREAK? Click OK for Break, Cancel for Waiting queue.`,
+																			)
+																				? "BREAK"
+																				: "WAITING";
+																		swapOrSubstituteActiveMatchPlayer(
+																			m.id,
+																			teams.a,
+																			teams.b,
+																			pId,
+																			e
+																				.currentTarget
+																				.value,
+																			removedNext,
+																		);
+																	}
+																}}
+																title="Substitute player"
+															>
+																<option
+																	value={pId}
+																	>Sub player…</option
+																>
+																<optgroup
+																	label="Queue / Waiting"
+																>
+																	{#each waiting.filter((wp) => wp.player_id !== pId) as wp}
+																		<option
+																			value={wp.player_id}
+																		>
+																			Sub: {name(
+																				wp.player_id,
+																			)} ({wp.matches_played}
+																			{wp.matches_played ===
+																			1
+																				? "game"
+																				: "games"})
+																			[{getRank(
+																				rating(
+																					wp.player_id,
+																				),
+																			)}]
+																		</option>
+																	{/each}
+																</optgroup>
+																<optgroup
+																	label="On Break"
+																>
+																	{#each onBreak.filter((bp) => bp.player_id !== pId) as bp}
+																		<option
+																			value={bp.player_id}
+																		>
+																			Sub: {name(
+																				bp.player_id,
+																			)} ({bp.matches_played}
+																			{bp.matches_played ===
+																			1
+																				? "game"
+																				: "games"})
+																			[{getRank(
+																				rating(
+																					bp.player_id,
+																				),
+																			)}]
+																		</option>
+																	{/each}
+																</optgroup>
+															</select>
+														{:else}
+															<span class="pname">
+																{name(pId)}
+																<span
+																	class="mono small faint"
+																	>({sp?.matches_played ??
+																		0} played)</span
+																>
+															</span>
+														{/if}
+													</div>
+												{/each}
+											</div>
 										</div>
 									</div>
 								{/if}
-							</a>
+							</div>
 						{/each}
 					</div>
 				{:else}
-					<p class="muted small">No active matches currently playing.</p>
+					<p class="muted small">
+						No active matches currently playing.
+					</p>
 				{/if}
 			{/if}
 
-			<div class="spread section-header" style="margin-top:20px; margin-bottom:12px;">
-				<button type="button" class="section-toggle-btn" onclick={() => (courtsCollapsed = !courtsCollapsed)}>
-					<span class="toggle-arrow" class:collapsed={courtsCollapsed}>▼</span>
+			<div
+				class="spread section-header"
+				style="margin-top:20px; margin-bottom:12px;"
+			>
+				<button
+					type="button"
+					class="section-toggle-btn"
+					onclick={() => (courtsCollapsed = !courtsCollapsed)}
+				>
+					<span class="toggle-arrow" class:collapsed={courtsCollapsed}
+						>▼</span
+					>
 					<h2 class="section-title">Courts ({courts.length})</h2>
 				</button>
 			</div>
@@ -1057,16 +1569,22 @@
 						{#if activeMatch}
 							<div class="spread">
 								<strong>{court.name}</strong>
-								<span class="badge dot badge-live">PLAYING →</span>
+								<span class="badge dot badge-live"
+									>PLAYING →</span
+								>
 							</div>
 						{:else}
 							<div class="card card-tight court-card">
 								<div class="spread">
 									<strong>{court.name}</strong>
-									<span class="badge dot">{statusLabel(court.status)}</span>
+									<span class="badge dot"
+										>{statusLabel(court.status)}</span
+									>
 								</div>
 								<div class="occupants">
-									<span class="faint small">Court available</span>
+									<span class="faint small"
+										>Court available</span
+									>
 								</div>
 							</div>
 						{/if}
@@ -1077,9 +1595,19 @@
 				</div>
 			{/if}
 
-			<div class="spread section-header" style="margin-top:24px; margin-bottom:12px;">
-				<button type="button" class="section-toggle-btn" onclick={() => (playersCollapsed = !playersCollapsed)}>
-					<span class="toggle-arrow" class:collapsed={playersCollapsed}>▼</span>
+			<div
+				class="spread section-header"
+				style="margin-top:24px; margin-bottom:12px;"
+			>
+				<button
+					type="button"
+					class="section-toggle-btn"
+					onclick={() => (playersCollapsed = !playersCollapsed)}
+				>
+					<span
+						class="toggle-arrow"
+						class:collapsed={playersCollapsed}>▼</span
+					>
 					<h2 class="section-title">
 						Players ({players.length - ended.length})
 					</h2>
@@ -1100,7 +1628,8 @@
 						<button
 							type="button"
 							class:active={showRankMode === "rating"}
-							onclick={() => (showRankMode = "rating")}>Rating</button
+							onclick={() => (showRankMode = "rating")}
+							>Rating</button
 						>
 					</div>
 				</div>
@@ -1124,21 +1653,45 @@
 								</a>
 								<span class="row">
 									{#if rating(p.player_id) != null}
-										<span class="mono faint small row gap-xs">
+										<span
+											class="mono faint small row gap-xs"
+										>
 											{#if showRankMode === "both" || showRankMode === "rank"}
-												<span class="badge {getRankBadgeClass(getRank(rating(p.player_id)))}"
-													>{getRank(rating(p.player_id))}</span
+												<span
+													class="badge {getRankBadgeClass(
+														getRank(
+															rating(p.player_id),
+														),
+													)}"
+													>{getRank(
+														rating(p.player_id),
+													)}</span
 												>
 											{/if}
 											{#if showRankMode === "both" || showRankMode === "rating"}
-												<span>{Math.round(rating(p.player_id) ?? 0)}</span>
+												<span
+													>{Math.round(
+														rating(p.player_id) ??
+															0,
+													)}</span
+												>
 											{/if}
 											{#if isHost}
 												<button
 													class="link-btn"
-													onclick={() => openEditRating(p.player_id)}
-													title="Edit rating/rank">
-													<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+													onclick={() =>
+														openEditRating(
+															p.player_id,
+														)}
+													title="Edit rating/rank"
+												>
+													<svg
+														width="24"
+														height="24"
+														viewBox="0 0 24 24"
+														fill="none"
+														xmlns="http://www.w3.org/2000/svg"
+													>
 														<path
 															d="M4 20H7.5L19 8.5C19.8 7.7 19.8 6.3 19 5.5C18.2 4.7 16.8 4.7 16 5.5L4 17.5V20Z"
 															stroke="white"
@@ -1157,6 +1710,12 @@
 											{/if}
 										</span>
 									{/if}
+									<span class="badge pill-sm"
+										>{p.matches_played}
+										{p.matches_played === 1
+											? "game"
+											: "games"}</span
+									>
 									<span class="mono faint small"
 										>{p.wins}W {p.losses}L</span
 									>
@@ -1185,21 +1744,45 @@
 								</a>
 								<span class="row">
 									{#if rating(p.player_id) != null}
-										<span class="mono faint small row gap-xs">
+										<span
+											class="mono faint small row gap-xs"
+										>
 											{#if showRankMode === "both" || showRankMode === "rank"}
-												<span class="badge {getRankBadgeClass(getRank(rating(p.player_id)))}"
-													>{getRank(rating(p.player_id))}</span
+												<span
+													class="badge {getRankBadgeClass(
+														getRank(
+															rating(p.player_id),
+														),
+													)}"
+													>{getRank(
+														rating(p.player_id),
+													)}</span
 												>
 											{/if}
 											{#if showRankMode === "both" || showRankMode === "rating"}
-												<span>{Math.round(rating(p.player_id) ?? 0)}</span>
+												<span
+													>{Math.round(
+														rating(p.player_id) ??
+															0,
+													)}</span
+												>
 											{/if}
 											{#if isHost}
 												<button
 													class="link-btn"
-													onclick={() => openEditRating(p.player_id)}
-													title="Edit rating/rank">
-													<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+													onclick={() =>
+														openEditRating(
+															p.player_id,
+														)}
+													title="Edit rating/rank"
+												>
+													<svg
+														width="24"
+														height="24"
+														viewBox="0 0 24 24"
+														fill="none"
+														xmlns="http://www.w3.org/2000/svg"
+													>
 														<path
 															d="M4 20H7.5L19 8.5C19.8 7.7 19.8 6.3 19 5.5C18.2 4.7 16.8 4.7 16 5.5L4 17.5V20Z"
 															stroke="white"
@@ -1214,13 +1797,23 @@
 															stroke-linecap="round"
 														/>
 													</svg>
-													</button
-												>
+												</button>
 											{/if}
 										</span>
 									{/if}
+									<span
+										class="badge pill-sm"
+										class:badge-accent={p.matches_played ===
+											0}
+										>{p.matches_played}
+										{p.matches_played === 1
+											? "game"
+											: "games"}</span
+									>
 									<span class="mono muted small"
-										>{mmss(liveWaitingSeconds(p, tick))}</span
+										>{mmss(
+											liveWaitingSeconds(p, tick),
+										)}</span
 									>
 									{#if isHost}
 										<button
@@ -1254,21 +1847,45 @@
 								</a>
 								<span class="row">
 									{#if rating(p.player_id) != null}
-										<span class="mono faint small row gap-xs">
+										<span
+											class="mono faint small row gap-xs"
+										>
 											{#if showRankMode === "both" || showRankMode === "rank"}
-												<span class="badge {getRankBadgeClass(getRank(rating(p.player_id)))}"
-													>{getRank(rating(p.player_id))}</span
+												<span
+													class="badge {getRankBadgeClass(
+														getRank(
+															rating(p.player_id),
+														),
+													)}"
+													>{getRank(
+														rating(p.player_id),
+													)}</span
 												>
 											{/if}
 											{#if showRankMode === "both" || showRankMode === "rating"}
-												<span>{Math.round(rating(p.player_id) ?? 0)}</span>
+												<span
+													>{Math.round(
+														rating(p.player_id) ??
+															0,
+													)}</span
+												>
 											{/if}
 											{#if isHost}
 												<button
 													class="link-btn"
-													onclick={() => openEditRating(p.player_id)}
-													title="Edit rating/rank">
-													<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+													onclick={() =>
+														openEditRating(
+															p.player_id,
+														)}
+													title="Edit rating/rank"
+												>
+													<svg
+														width="24"
+														height="24"
+														viewBox="0 0 24 24"
+														fill="none"
+														xmlns="http://www.w3.org/2000/svg"
+													>
 														<path
 															d="M4 20H7.5L19 8.5C19.8 7.7 19.8 6.3 19 5.5C18.2 4.7 16.8 4.7 16 5.5L4 17.5V20Z"
 															stroke="white"
@@ -1283,11 +1900,17 @@
 															stroke-linecap="round"
 														/>
 													</svg>
-													</button
-												>
+												</button>
 											{/if}
 										</span>
 									{/if}
+									<span class="badge pill-sm"
+										>{p.matches_played}
+										{p.matches_played === 1
+											? "game"
+											: "games"}</span
+									>
+
 									{#if isHost}
 										<button
 											class="link-btn"
@@ -1305,10 +1928,24 @@
 				</div>
 			{/if}
 
-			<div class="spread section-header" style="margin-top:24px; margin-bottom:12px;">
-				<button type="button" class="section-toggle-btn" onclick={() => (historicalMatchesCollapsed = !historicalMatchesCollapsed)}>
-					<span class="toggle-arrow" class:collapsed={historicalMatchesCollapsed}>▼</span>
-					<h2 class="section-title">Historical Matches ({historicalMatches.length})</h2>
+			<div
+				class="spread section-header"
+				style="margin-top:24px; margin-bottom:12px;"
+			>
+				<button
+					type="button"
+					class="section-toggle-btn"
+					onclick={() =>
+						(historicalMatchesCollapsed =
+							!historicalMatchesCollapsed)}
+				>
+					<span
+						class="toggle-arrow"
+						class:collapsed={historicalMatchesCollapsed}>▼</span
+					>
+					<h2 class="section-title">
+						Historical Matches ({historicalMatches.length})
+					</h2>
 				</button>
 			</div>
 			{#if !historicalMatchesCollapsed}
@@ -1324,15 +1961,13 @@
 									{#if $matchTeams[m.id]}
 										<span class="muted small">
 											(
-											{name($matchTeams[m.id].a[0])} &amp; {name(
-												$matchTeams[m.id].a[1],
-											)}
+											{name($matchTeams[m.id].a[0])} &amp;
+											{name($matchTeams[m.id].a[1])}
 										</span>
 										vs
 										<span class="muted small">
-											{name($matchTeams[m.id].b[0])} &amp; {name(
-												$matchTeams[m.id].b[1],
-											)}
+											{name($matchTeams[m.id].b[0])} &amp;
+											{name($matchTeams[m.id].b[1])}
 											)
 										</span>
 									{/if}
@@ -1376,7 +2011,16 @@
 					class:active={hudOpen && activeTool === "match"}
 					onclick={() => toggleHud("match")}
 				>
-					<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<svg
+						viewBox="0 0 24 24"
+						width="18"
+						height="18"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
 						<path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
 					</svg>
 					Match
@@ -1390,7 +2034,16 @@
 					class:active={hudOpen && activeTool === "courts"}
 					onclick={() => toggleHud("courts")}
 				>
-					<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<svg
+						viewBox="0 0 24 24"
+						width="18"
+						height="18"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
 						<rect x="3" y="3" width="7" height="7" rx="1" />
 						<rect x="14" y="3" width="7" height="7" rx="1" />
 						<rect x="3" y="14" width="7" height="7" rx="1" />
@@ -1398,7 +2051,9 @@
 					</svg>
 					Courts
 					{#if availableCourts.length}
-						<span class="dock-count cyan">{availableCourts.length}</span>
+						<span class="dock-count cyan"
+							>{availableCourts.length}</span
+						>
 					{/if}
 				</button>
 				<button
@@ -1407,7 +2062,16 @@
 					class:active={hudOpen && activeTool === "invite"}
 					onclick={() => toggleHud("invite")}
 				>
-					<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<svg
+						viewBox="0 0 24 24"
+						width="18"
+						height="18"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
 						<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
 						<circle cx="9" cy="7" r="4" />
 						<line x1="19" y1="8" x2="19" y2="14" />
@@ -1421,7 +2085,16 @@
 					class:active={hudOpen && activeTool === "club"}
 					onclick={() => toggleHud("club")}
 				>
-					<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<svg
+						viewBox="0 0 24 24"
+						width="18"
+						height="18"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
 						<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
 						<circle cx="9" cy="7" r="4" />
 						<path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -1449,23 +2122,29 @@
 							aria-label="Close host tools">✕</button
 						>
 					</div>
-					<div class="tool-tabs" role="tablist" aria-label="Host tools">
-					<button
-						class:active={activeTool === "match"}
-						onclick={() => (activeTool = "match")}>Match</button
+					<div
+						class="tool-tabs"
+						role="tablist"
+						aria-label="Host tools"
 					>
-					<button
-						class:active={activeTool === "courts"}
-						onclick={() => (activeTool = "courts")}>Courts</button
-					>
-					<button
-						class:active={activeTool === "invite"}
-						onclick={() => (activeTool = "invite")}>Invite</button
-					>
-					<button
-						class:active={activeTool === "club"}
-						onclick={() => (activeTool = "club")}>Club</button
-					>
+						<button
+							class:active={activeTool === "match"}
+							onclick={() => (activeTool = "match")}>Match</button
+						>
+						<button
+							class:active={activeTool === "courts"}
+							onclick={() => (activeTool = "courts")}
+							>Courts</button
+						>
+						<button
+							class:active={activeTool === "invite"}
+							onclick={() => (activeTool = "invite")}
+							>Invite</button
+						>
+						<button
+							class:active={activeTool === "club"}
+							onclick={() => (activeTool = "club")}>Club</button
+						>
 					</div>
 				</div>
 				<div class="hud-panel-body">
@@ -1473,12 +2152,20 @@
 						<div class="stack">
 							{#if club}
 								<div class="card card-tight card-pop">
-									<div class="spread" style="margin-bottom:4px;">
-										<strong style="font-size:0.85rem;">Permanent Club Link</strong>
-										<span class="badge badge-accent">Best for members</span>
+									<div
+										class="spread"
+										style="margin-bottom:4px;"
+									>
+										<strong style="font-size:0.85rem;"
+											>Permanent Club Link</strong
+										>
+										<span class="badge badge-accent"
+											>Best for members</span
+										>
 									</div>
 									<p class="muted small">
-										Members bookmark this link to view current &amp; future sessions anytime.
+										Members bookmark this link to view
+										current &amp; future sessions anytime.
 									</p>
 									<button
 										type="button"
@@ -1744,8 +2431,7 @@
 										Need at least 4 waiting players ({waiting.length}
 										now).
 									</p>
-								{:else if session.assignment_mode === "AUTOMATIC"
-									&& session.auto_fill_enabled}
+								{:else if session.assignment_mode === "AUTOMATIC" && session.auto_fill_enabled}
 									<!-- Auto-fill owns the courts — no manual
 									assignment controls while it's on. -->
 									<p class="muted small">
@@ -1792,15 +2478,26 @@
 															p.player_id,
 														)}
 												>
-													{name(p.player_id)}
+													<span
+														>{name(
+															p.player_id,
+														)}</span
+													>
+													<span
+														class="mono small faint"
+														>({p.matches_played}
+														{p.matches_played === 1
+															? "game"
+															: "games"})</span
+													>
 													{#if rating(p.player_id)}<span
 															class="mono faint"
 														>
-															{Math.round(
+															[{getRank(
 																rating(
 																	p.player_id,
-																) ?? 0,
-															)}</span
+																),
+															)}]</span
 														>{/if}
 												</button>
 											{/each}
@@ -1820,7 +2517,8 @@
 								{/if}
 								{#if proposal}
 									<p class="faint small">
-										Drag to swap teams, or choose a member from the dropdown to replace.
+										Drag to swap teams, or choose a member
+										from the dropdown to replace.
 									</p>
 									<div class="proposal rise-in">
 										<div
@@ -1834,9 +2532,13 @@
 											<span class="faint small"
 												>Team A</span
 											>
-											<div class="team-players stack gap-xs">
+											<div
+												class="team-players stack gap-xs"
+											>
 												{#each proposal.a as id, idx (id)}
-													<div class="row gap-xs wrap">
+													<div
+														class="row gap-xs wrap"
+													>
 														<button
 															type="button"
 															class="drag-chip"
@@ -1860,23 +2562,36 @@
 															onchange={(e) =>
 																replaceProposalPlayer(
 																	"a",
-																	idx as 0 | 1,
-																	e.currentTarget.value,
+																	idx as
+																		| 0
+																		| 1,
+																	e
+																		.currentTarget
+																		.value,
 																)}
 															title="Replace member"
 														>
-															<option value={id}>Replace member…</option>
+															<option value={id}
+																>Replace member…</option
+															>
 															{#each waiting.filter((wp) => !proposal?.a.includes(wp.player_id) && !proposal?.b.includes(wp.player_id)) as wp}
-																<option value={wp.player_id}>
-																	Replace with {name(wp.player_id)} [{getRank(rating(wp.player_id))}]
+																<option
+																	value={wp.player_id}
+																>
+																	Replace with {name(
+																		wp.player_id,
+																	)} [{getRank(
+																		rating(
+																			wp.player_id,
+																		),
+																	)}]
 																</option>
 															{/each}
 														</select>
 													</div>
 												{/each}
 											</div>
-											<span
-												class="mono faint small"
+											<span class="mono faint small"
 												>avg {teamAvgRating(
 													proposal.a,
 												).toFixed(0)}</span
@@ -1894,9 +2609,13 @@
 											<span class="faint small"
 												>Team B</span
 											>
-											<div class="team-players stack gap-xs">
+											<div
+												class="team-players stack gap-xs"
+											>
 												{#each proposal.b as id, idx (id)}
-													<div class="row gap-xs wrap">
+													<div
+														class="row gap-xs wrap"
+													>
 														<button
 															type="button"
 															class="drag-chip"
@@ -1920,23 +2639,36 @@
 															onchange={(e) =>
 																replaceProposalPlayer(
 																	"b",
-																	idx as 0 | 1,
-																	e.currentTarget.value,
+																	idx as
+																		| 0
+																		| 1,
+																	e
+																		.currentTarget
+																		.value,
 																)}
 															title="Replace member"
 														>
-															<option value={id}>Replace member…</option>
+															<option value={id}
+																>Replace member…</option
+															>
 															{#each waiting.filter((wp) => !proposal?.a.includes(wp.player_id) && !proposal?.b.includes(wp.player_id)) as wp}
-																<option value={wp.player_id}>
-																	Replace with {name(wp.player_id)} [{getRank(rating(wp.player_id))}]
+																<option
+																	value={wp.player_id}
+																>
+																	Replace with {name(
+																		wp.player_id,
+																	)} [{getRank(
+																		rating(
+																			wp.player_id,
+																		),
+																	)}]
 																</option>
 															{/each}
 														</select>
 													</div>
 												{/each}
 											</div>
-											<span
-												class="mono faint small"
+											<span class="mono faint small"
 												>avg {teamAvgRating(
 													proposal.b,
 												).toFixed(0)}</span
@@ -2007,7 +2739,8 @@
 						id="rank-selector"
 						class="select"
 						bind:value={editRankVal}
-						onchange={(e) => onRankSelectChange(e.currentTarget.value)}
+						onchange={(e) =>
+							onRankSelectChange(e.currentTarget.value)}
 					>
 						{#each RANK_TIERS as tier}
 							<option value={tier.rank}>{tier.label}</option>
@@ -2023,11 +2756,15 @@
 						bind:value={editRatingVal}
 					/>
 				</div>
-				<div class="row spread modal-actions" style="margin-top: 18px; gap: 10px;">
+				<div
+					class="row spread modal-actions"
+					style="margin-top: 18px; gap: 10px;"
+				>
 					<button
 						class="btn btn-ghost"
 						style="flex: 1;"
-						onclick={() => (editRatingPlayerId = null)}>Cancel</button
+						onclick={() => (editRatingPlayerId = null)}
+						>Cancel</button
 					>
 					<button
 						class="btn btn-primary"
@@ -2573,7 +3310,7 @@
 	}
 
 	.match-card-live::before {
-		content: '';
+		content: "";
 		position: absolute;
 		top: 0;
 		bottom: 0;
@@ -2613,7 +3350,10 @@
 
 	.court-card-link {
 		cursor: pointer;
-		transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+		transition:
+			transform 0.15s ease,
+			border-color 0.15s ease,
+			box-shadow 0.15s ease;
 	}
 	.court-card-link:hover {
 		border-color: var(--accent);
@@ -2639,7 +3379,9 @@
 		overflow-y: auto;
 		background: var(--bg-elevated);
 		border: 2px solid var(--accent);
-		box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85), var(--shadow);
+		box-shadow:
+			0 12px 36px rgba(0, 0, 0, 0.85),
+			var(--shadow);
 		padding: 22px;
 		border-radius: var(--radius-lg);
 	}
@@ -2666,9 +3408,45 @@
 		}
 	}
 
-	@media (max-width: 720px) {
-		.players-grid {
-			grid-template-columns: 1fr;
-		}
+	.session-stats-bar {
+		background: var(--bg-elevated-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		padding: 12px 18px;
+	}
+	.stat-item {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.stat-val {
+		font-size: 1.15rem;
+		font-weight: 800;
+	}
+	.stat-val.accent {
+		color: var(--accent);
+	}
+	.stat-divider {
+		width: 1px;
+		height: 28px;
+		background: var(--border);
+		align-self: center;
+	}
+	.pill-sm {
+		font-size: 0.72rem;
+		padding: 2px 6px;
+		border-radius: 12px;
+		font-weight: 700;
+	}
+	.active-match-chip {
+		cursor: grab;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px 8px;
+		font-size: 0.82rem;
+	}
+	.gap-md {
+		gap: 16px;
 	}
 </style>

@@ -269,6 +269,23 @@ export const api = {
 		});
 	},
 
+	updateMatchRoster (
+		matchId: string,
+		payload: {
+			team_a: [string, string];
+			team_b: [string, string];
+			removed_player_statuses?: Record<string, SessionPlayerStatus>;
+		},
+		token: string
+	) {
+		return request<Match>(`/matches/${matchId}/roster`, {
+			method: 'PUT',
+			body: payload,
+			token
+		});
+	},
+
+
 	getPlayer (playerId: string, token: string) {
 		return request<Player>(`/players/${playerId}`, { token });
 	},

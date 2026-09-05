@@ -1,24 +1,39 @@
 <script lang="ts">
-	import { page } from '$app/state';
-	import { api, ApiError } from '$lib/api';
-	import { identity } from '$lib/stores/identity';
-	import { toast } from '$lib/stores/toast';
-	import { playerCache, ensurePlayers } from '$lib/stores/players';
-	import { matchTeams } from '$lib/stores/matchTeams';
-	import { statusLabel, formatTime } from '$lib/utils/format';
-	import type { Court, Match } from '$lib/types';
+	import { page } from "$app/state";
+	import { api, ApiError } from "$lib/api";
+	import { identity } from "$lib/stores/identity";
+	import { toast } from "$lib/stores/toast";
+	import { playerCache, ensurePlayers } from "$lib/stores/players";
+	import { matchTeams, rememberMatchTeams } from "$lib/stores/matchTeams";
+	import { statusLabel, formatTime } from "$lib/utils/format";
+	import type {
+		Court,
+		Match,
+		SessionPlayer,
+		SessionPlayerStatus,
+	} from "$lib/types";
 
-	let matchId = $derived(page.params.matchId ?? '');
-	let sessionId = $derived(page.url.searchParams.get('session') ?? '');
+	let matchId = $derived(page.params.matchId ?? "");
+	let sessionId = $derived(page.url.searchParams.get("session") ?? "");
 	// Reading $identity directly (not just calling identity.* methods, which
 	// use the store's get() escape hatch and so aren't tracked) is what
 	// makes these re-derive when the store changes — e.g. once
 	// ensureCoHostChecked resolves after a co-host promotion.
-	let token = $derived($identity && sessionId ? identity.tokenForSession(sessionId) : undefined);
+	let token = $derived(
+		$identity && sessionId
+			? identity.tokenForSession(sessionId)
+			: undefined,
+	);
 	// Starting/finishing a match is host-only — always use the host's own token for
 	// those, even if this device also joined the session as a player.
-	let hostToken = $derived($identity && sessionId ? identity.hostTokenForSession(sessionId) : undefined);
-	let isHost = $derived($identity && sessionId ? identity.isHostOfSession(sessionId) : false);
+	let hostToken = $derived(
+		$identity && sessionId
+			? identity.hostTokenForSession(sessionId)
+			: undefined,
+	);
+	let isHost = $derived(
+		$identity && sessionId ? identity.isHostOfSession(sessionId) : false,
+	);
 
 	let match = $state<Match | null>(null);
 	let court = $state<Court | null>(null);
@@ -30,8 +45,10 @@
 
 	let teams = $derived($matchTeams[matchId]);
 
+	let sessionPlayers = $state<SessionPlayer[]>([]);
+
 	function name(playerId: string): string {
-		return $playerCache[playerId]?.display_name ?? '…';
+		return $playerCache[playerId]?.display_name ?? "…";
 	}
 
 	async function load() {
@@ -42,19 +59,80 @@
 		try {
 			const [m, detail] = await Promise.all([
 				api.getMatch(matchId, token),
-				sessionId ? api.getSession(sessionId, token) : Promise.resolve(null)
+				sessionId
+					? api.getSession(sessionId, token)
+					: Promise.resolve(null),
 			]);
 			match = m;
+			if (m.players && m.players.length === 4) {
+				rememberMatchTeams(
+					m.id,
+					[m.players[0], m.players[1]],
+					[m.players[2], m.players[3]],
+				);
+			}
 			if (detail) {
+				sessionPlayers = detail.players;
 				court = detail.courts.find((c) => c.id === m.court_id) ?? null;
-				ensurePlayers(detail.players.map((p) => p.player_id), token);
-				void identity.ensureCoHostChecked(detail.session.club_id, token);
+				ensurePlayers(
+					detail.players.map((p) => p.player_id),
+					token,
+				);
+				void identity.ensureCoHostChecked(
+					detail.session.club_id,
+					token,
+				);
 			}
 			loadError = null;
 		} catch (err) {
-			loadError = err instanceof ApiError ? err.message : 'Could not load this match.';
+			loadError =
+				err instanceof ApiError
+					? err.message
+					: "Could not load this match.";
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function substitutePlayer(
+		targetPlayerId: string,
+		replacementPlayerId: string,
+	) {
+		if (!hostToken || !teams || targetPlayerId === replacementPlayerId)
+			return;
+
+		let newA = [...teams.a] as [string, string];
+		let newB = [...teams.b] as [string, string];
+
+		if (newA.includes(targetPlayerId)) {
+			newA = newA.map((id) =>
+				id === targetPlayerId ? replacementPlayerId : id,
+			) as [string, string];
+		} else if (newB.includes(targetPlayerId)) {
+			newB = newB.map((id) =>
+				id === targetPlayerId ? replacementPlayerId : id,
+			) as [string, string];
+		}
+
+		try {
+			await api.updateMatchRoster(
+				matchId,
+				{
+					team_a: newA,
+					team_b: newB,
+					removed_player_statuses: { [targetPlayerId]: "BREAK" },
+				},
+				hostToken,
+			);
+			rememberMatchTeams(matchId, newA, newB);
+			toast.success("Roster updated.");
+			await load();
+		} catch (err) {
+			toast.error(
+				err instanceof ApiError
+					? err.message
+					: "Could not update roster.",
+			);
 		}
 	}
 
@@ -67,9 +145,13 @@
 		acting = true;
 		try {
 			match = await api.startMatch(matchId, hostToken);
-			toast.success('Match started.');
+			toast.success("Match started.");
 		} catch (err) {
-			toast.error(err instanceof ApiError ? err.message : 'Could not start the match.');
+			toast.error(
+				err instanceof ApiError
+					? err.message
+					: "Could not start the match.",
+			);
 		} finally {
 			acting = false;
 		}
@@ -79,10 +161,18 @@
 		if (!hostToken) return;
 		acting = true;
 		try {
-			match = await api.finishMatch(matchId, { score_a: scoreA, score_b: scoreB }, hostToken);
-			toast.success('Match finished — ratings updated.');
+			match = await api.finishMatch(
+				matchId,
+				{ score_a: scoreA, score_b: scoreB },
+				hostToken,
+			);
+			toast.success("Match finished — ratings updated.");
 		} catch (err) {
-			toast.error(err instanceof ApiError ? err.message : 'Could not finish the match.');
+			toast.error(
+				err instanceof ApiError
+					? err.message
+					: "Could not finish the match.",
+			);
 		} finally {
 			acting = false;
 		}
@@ -98,7 +188,11 @@
 		<div class="card">
 			<p class="muted">Open this match from its session to view it.</p>
 			{#if sessionId}
-				<a href="/join?session={sessionId}" class="btn btn-primary" style="margin-top:16px;">Join that session</a>
+				<a
+					href="/join?session={sessionId}"
+					class="btn btn-primary"
+					style="margin-top:16px;">Join that session</a
+				>
 			{/if}
 		</div>
 	</section>
@@ -108,7 +202,9 @@
 	</section>
 {:else if !match}
 	<section class="container rise-in">
-		<div class="card"><p class="muted">{loadError ?? 'Match not found.'}</p></div>
+		<div class="card">
+			<p class="muted">{loadError ?? "Match not found."}</p>
+		</div>
 	</section>
 {:else}
 	<section class="container rise-in">
@@ -119,7 +215,11 @@
 		<div class="card match-card">
 			<div class="spread">
 				<h1>Match</h1>
-				<span class="badge dot" class:badge-live={match.status === 'PLAYING'}>{statusLabel(match.status)}</span>
+				<span
+					class="badge dot"
+					class:badge-live={match.status === "PLAYING"}
+					>{statusLabel(match.status)}</span
+				>
 			</div>
 			{#if court}<p class="muted small">{court.name}</p>{/if}
 
@@ -137,36 +237,64 @@
 				</div>
 			{/if}
 
-			{#if match.status === 'FINISHED'}
+			{#if match.status === "FINISHED"}
 				<div class="final-score">
-					<span class="mono score">{match.score_a}–{match.score_b}</span>
+					<span class="mono score"
+						>{match.score_a}–{match.score_b}</span
+					>
 					{#if match.winner}
-						<span class="badge badge-accent">Team {match.winner} won</span>
+						<span class="badge badge-accent"
+							>Team {match.winner} won</span
+						>
 					{/if}
 				</div>
 				<p class="faint small">
-					{formatTime(match.started_at)} – {formatTime(match.ended_at)}
+					{formatTime(match.started_at)} – {formatTime(
+						match.ended_at,
+					)}
 				</p>
-			{:else if isHost && match.status === 'CREATED'}
-				<button class="btn btn-primary btn-block" onclick={start} disabled={acting}>
-					{acting ? 'Starting…' : 'Start match'}
+			{:else if isHost && match.status === "CREATED"}
+				<button
+					class="btn btn-primary btn-block"
+					onclick={start}
+					disabled={acting}
+				>
+					{acting ? "Starting…" : "Start match"}
 				</button>
-			{:else if isHost && match.status === 'PLAYING'}
+			{:else if isHost && match.status === "PLAYING"}
 				<div class="score-form">
 					<div class="field">
 						<label for="scoreA">Team A score</label>
-						<input id="scoreA" class="input" type="number" min="0" bind:value={scoreA} />
+						<input
+							id="scoreA"
+							class="input"
+							type="number"
+							min="0"
+							bind:value={scoreA}
+						/>
 					</div>
 					<div class="field">
 						<label for="scoreB">Team B score</label>
-						<input id="scoreB" class="input" type="number" min="0" bind:value={scoreB} />
+						<input
+							id="scoreB"
+							class="input"
+							type="number"
+							min="0"
+							bind:value={scoreB}
+						/>
 					</div>
-					<button class="btn btn-primary btn-block" onclick={finish} disabled={acting}>
-						{acting ? 'Saving…' : 'Finish match'}
+					<button
+						class="btn btn-primary btn-block"
+						onclick={finish}
+						disabled={acting}
+					>
+						{acting ? "Saving…" : "Finish match"}
 					</button>
 				</div>
 			{:else}
-				<p class="muted small">Waiting on the host to start this match.</p>
+				<p class="muted small">
+					Waiting on the host to start this match.
+				</p>
 			{/if}
 		</div>
 	</section>
@@ -178,7 +306,9 @@
 		margin-bottom: 16px;
 		font-size: 0.85rem;
 		color: var(--text-dim);
-		transition: color 0.15s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+		transition:
+			color 0.15s ease,
+			transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.back:hover {

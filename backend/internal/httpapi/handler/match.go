@@ -4,6 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
+	"deuce/backend/internal/database/db"
 	"deuce/backend/internal/match"
 )
 
@@ -288,6 +289,48 @@ func (h *Handlers) FinishMatch(c *fiber.Ctx) error {
 
 	m, err := h.Matches.FinishMatch(c.UserContext(), match.FinishInput{
 		MatchID: matchID, ScoreA: req.ScoreA, ScoreB: req.ScoreB,
+	})
+	if err != nil {
+		return HandleError(c, err)
+	}
+	return c.JSON(toMatchDTO(m))
+}
+
+type UpdateMatchRosterRequest struct {
+	TeamA                 [2]string         `json:"team_a" validate:"required,len=2,dive,uuid"`
+	TeamB                 [2]string         `json:"team_b" validate:"required,len=2,dive,uuid"`
+	RemovedPlayerStatuses map[string]string `json:"removed_player_statuses,omitempty"`
+}
+
+func (h *Handlers) UpdateMatchRoster(c *fiber.Ctx) error {
+	matchID, err := ParseUUIDParam(c, "matchId")
+	if err != nil {
+		return HandleError(c, err)
+	}
+	if _, err := h.requireHostOfMatch(c, matchID); err != nil {
+		return HandleError(c, err)
+	}
+	var req UpdateMatchRosterRequest
+	if err := BindAndValidate(c, &req); err != nil {
+		return HandleError(c, err)
+	}
+
+	teamA := [2]uuid.UUID{uuid.MustParse(req.TeamA[0]), uuid.MustParse(req.TeamA[1])}
+	teamB := [2]uuid.UUID{uuid.MustParse(req.TeamB[0]), uuid.MustParse(req.TeamB[1])}
+
+	removedStatuses := map[uuid.UUID]db.SessionPlayerStatus{}
+	for pidStr, statusStr := range req.RemovedPlayerStatuses {
+		pid, err := uuid.Parse(pidStr)
+		if err == nil {
+			removedStatuses[pid] = db.SessionPlayerStatus(statusStr)
+		}
+	}
+
+	m, err := h.Matches.UpdateRoster(c.UserContext(), match.UpdateRosterInput{
+		MatchID:               matchID,
+		TeamA:                 teamA,
+		TeamB:                 teamB,
+		RemovedPlayerStatuses: removedStatuses,
 	})
 	if err != nil {
 		return HandleError(c, err)
