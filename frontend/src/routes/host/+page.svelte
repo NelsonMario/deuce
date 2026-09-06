@@ -38,7 +38,8 @@
 	<p class="kicker muted" use:reveal={{ delay: 0 }}>step 1 of 2</p>
 	<h1 use:reveal={{ delay: 80 }}>Start a club</h1>
 	<p class="muted lead" use:reveal={{ delay: 160 }}>
-		You'll get a join code straight after — share it however you're already coordinating.
+		You'll get a join code straight after — share it however you're
+		already coordinating.
 	</p>
 
 	<form onsubmit={submit} class="card stack" use:reveal={{ delay: 240 }}>
@@ -51,6 +52,7 @@
 				bind:value={clubName}
 				maxlength="80"
 				autocomplete="off"
+				enterkeyhint="next"
 				required
 			/>
 		</div>
@@ -64,6 +66,7 @@
 				bind:value={hostName}
 				maxlength="60"
 				autocomplete="off"
+				enterkeyhint="go"
 				required
 			/>
 		</div>
@@ -77,21 +80,23 @@
 <style>
 	.kicker {
 		text-transform: uppercase;
-		letter-spacing: 0.1em;
+		letter-spacing: 0.12em;
 		font-size: 0.7rem;
-		font-weight: 700;
+		font-weight: 600;
 		margin-bottom: 8px;
 	}
 
 	h1 {
-		font-size: 1.7rem;
-		font-weight: 800;
-		letter-spacing: -0.01em;
+		font-size: 1.8rem;
+		font-weight: 700;
+		letter-spacing: -0.02em;
 	}
 
 	.lead {
 		margin: 8px 0 24px;
-		font-size: 0.92rem;
+		font-size: 0.95rem;
+		color: var(--text-dim);
+		max-width: 460px;
 	}
 
 	form {

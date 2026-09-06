@@ -532,21 +532,22 @@
 <style>
 	.kicker {
 		text-transform: uppercase;
-		letter-spacing: 0.1em;
+		letter-spacing: 0.12em;
 		font-size: 0.7rem;
-		font-weight: 700;
+		font-weight: 600;
 		margin-bottom: 8px;
 	}
 
 	h1 {
-		font-size: 1.7rem;
-		font-weight: 800;
-		letter-spacing: -0.01em;
+		font-size: 1.8rem;
+		font-weight: 700;
+		letter-spacing: -0.02em;
 	}
 
 	.lead {
 		margin: 6px 0 20px;
-		font-size: 0.9rem;
+		font-size: 0.92rem;
+		color: var(--text-dim);
 	}
 
 	.join-card {
@@ -564,16 +565,17 @@
 		border: none;
 		padding: 0;
 		text-align: left;
+		font-family: var(--font-mono);
 		font-size: 1.7rem;
-		font-weight: 800;
-		letter-spacing: 0.08em;
+		font-weight: 700;
+		letter-spacing: 0.1em;
 		color: var(--accent);
 		cursor: pointer;
-		transition: opacity 0.15s ease, letter-spacing 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+		transition: opacity 0.15s ease, letter-spacing 0.3s var(--ease-spring);
 	}
 
 	.code:hover {
-		letter-spacing: 0.16em;
+		letter-spacing: 0.18em;
 	}
 
 	.code-press {
@@ -586,9 +588,7 @@
 			text-shadow: 0 0 0 transparent;
 		}
 		50% {
-			text-shadow:
-				0 0 18px color-mix(in srgb, var(--accent) 45%, transparent),
-				2px 2px 0 var(--pop-pink);
+			text-shadow: 0 0 20px color-mix(in srgb, var(--accent) 35%, transparent);
 		}
 	}
 
@@ -613,7 +613,7 @@
 	}
 
 	.session-link {
-		transition: border-color 0.15s ease;
+		transition: border-color 0.2s ease;
 	}
 
 	.session-link:hover {

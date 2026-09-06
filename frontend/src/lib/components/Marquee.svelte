@@ -6,7 +6,7 @@
 		separator?: string;
 	}
 
-	let { items, speed = 28, separator = '✦' }: Props = $props();
+	let { items, speed = 28, separator = '·' }: Props = $props();
 </script>
 
 <!--
@@ -31,6 +31,8 @@
 	.marquee {
 		overflow: hidden;
 		user-select: none;
+		-webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+		mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
 	}
 
 	.track {
@@ -47,24 +49,16 @@
 
 	.item {
 		font-family: var(--font-display);
-		font-size: clamp(1.1rem, 3vw, 1.6rem);
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
-		color: var(--text);
-		padding: 0 18px;
+		font-size: 0.95rem;
+		letter-spacing: 0.02em;
+		color: var(--text-dim);
+		padding: 0 16px;
 		white-space: nowrap;
-	}
-
-	/* alternating outline style — every other word is hollow, a classic
-	   poster trick that adds rhythm without extra color */
-	.item:nth-child(4n + 3) {
-		color: transparent;
-		-webkit-text-stroke: 1px var(--text-dim);
 	}
 
 	.sep {
 		color: var(--accent);
-		font-size: 0.8em;
+		font-size: 0.75rem;
 		transform: translateY(-1px);
 	}
 

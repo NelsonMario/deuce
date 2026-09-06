@@ -2,13 +2,11 @@
 	import { onMount } from 'svelte';
 
 	/**
-	 * Awwwards-style custom cursor: an instant dot plus a lerped trailing
-	 * ring that dilates over interactive elements and compresses on click.
-	 * Enabled only for fine pointers (mouse/trackpad) without reduced-motion;
-	 * touch devices keep native behavior untouched.
+	 * Subtle pointer accent: a small ring that trails the cursor and tightens
+	 * over interactive elements. Enabled only for fine pointers (mouse/trackpad)
+	 * without reduced-motion; touch devices keep native behavior untouched.
 	 */
 	let enabled = $state(false);
-	let dotEl: HTMLDivElement | undefined = $state();
 	let ringEl: HTMLDivElement | undefined = $state();
 
 	onMount(() => {
@@ -29,22 +27,21 @@
 		function onMove(e: PointerEvent) {
 			pos.x = e.clientX;
 			pos.y = e.clientY;
-			if (dotEl) dotEl.style.transform = `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%)`;
-			targetScale = (e.target as Element | null)?.closest?.(INTERACTIVE) ? 2.1 : 1;
+			targetScale = (e.target as Element | null)?.closest?.(INTERACTIVE) ? 1.6 : 1;
 		}
 
 		function onDown() {
-			targetScale = 0.7;
+			targetScale = 0.85;
 		}
 
 		function onUp(e: PointerEvent) {
-			targetScale = (e.target as Element | null)?.closest?.(INTERACTIVE) ? 2.1 : 1;
+			targetScale = (e.target as Element | null)?.closest?.(INTERACTIVE) ? 1.6 : 1;
 		}
 
 		function tick() {
-			ring.x += (pos.x - ring.x) * 0.16;
-			ring.y += (pos.y - ring.y) * 0.16;
-			scale += (targetScale - scale) * 0.18;
+			ring.x += (pos.x - ring.x) * 0.22;
+			ring.y += (pos.y - ring.y) * 0.22;
+			scale += (targetScale - scale) * 0.2;
 			if (ringEl)
 				ringEl.style.transform = `translate(${ring.x}px, ${ring.y}px) translate(-50%, -50%) scale(${scale})`;
 			raf = requestAnimationFrame(tick);
@@ -67,11 +64,9 @@
 
 {#if enabled}
 	<div class="cursor-ring" bind:this={ringEl} aria-hidden="true"></div>
-	<div class="cursor-dot" bind:this={dotEl} aria-hidden="true"></div>
 {/if}
 
 <style>
-	.cursor-dot,
 	.cursor-ring {
 		position: fixed;
 		top: 0;
@@ -80,21 +75,9 @@
 		pointer-events: none;
 		border-radius: 50%;
 		will-change: transform;
-	}
-
-	/* difference blending keeps the cursor visible over every surface — it
-	   inverts whatever is underneath (lime over lime turns dark, etc.). */
-	.cursor-dot {
-		width: 6px;
-		height: 6px;
-		background: var(--accent);
-		mix-blend-mode: difference;
-	}
-
-	.cursor-ring {
-		width: 34px;
-		height: 34px;
-		border: 1.5px solid color-mix(in srgb, var(--accent) 80%, white);
-		mix-blend-mode: difference;
+		width: 26px;
+		height: 26px;
+		border: 1.5px solid color-mix(in srgb, var(--accent) 70%, var(--text));
+		opacity: 0.7;
 	}
 </style>

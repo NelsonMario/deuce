@@ -111,14 +111,20 @@
 
 <style>
 	.back {
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 		margin-bottom: 16px;
-		font-size: 0.85rem;
-		color: var(--text-dim);
+		padding: 8px 4px;
+		font-size: 0.9rem;
+		color: var(--accent);
+		min-height: 44px;
+		transition: color 0.15s ease, transform 0.2s var(--ease-spring);
 	}
 
 	.back:hover {
 		color: var(--accent);
+		transform: translateX(-4px);
 	}
 
 	.profile-card {
@@ -130,21 +136,26 @@
 	}
 
 	.avatar {
-		width: 48px;
-		height: 48px;
+		width: 54px;
+		height: 54px;
 		border-radius: 50%;
-		background: var(--bg-elevated-2);
+		background: linear-gradient(
+			160deg,
+			color-mix(in srgb, var(--accent) 26%, var(--bg-elevated-2)),
+			var(--bg-elevated-2)
+		);
 		color: var(--accent);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-weight: 800;
-		font-size: 0.95rem;
+		font-weight: 700;
+		font-size: 1rem;
+		flex-shrink: 0;
 	}
 
 	h1 {
-		font-size: 1.3rem;
-		font-weight: 800;
+		font-size: 1.4rem;
+		font-weight: 700;
 	}
 
 	.small {
@@ -158,13 +169,14 @@
 	.rating {
 		display: block;
 		font-size: 1.8rem;
-		font-weight: 800;
+		font-weight: 700;
 		color: var(--accent);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.section-title {
 		font-size: 0.95rem;
 		font-weight: 700;
-		margin: 24px 0 10px;
+		margin: 24px 0 12px;
 	}
 </style>

@@ -175,40 +175,35 @@
 		position: sticky;
 		top: 0;
 		z-index: 50;
-		backdrop-filter: blur(10px);
-		background: color-mix(in srgb, var(--bg) 82%, transparent);
-		border-bottom: 2px solid var(--border);
-		overflow: hidden;
+		backdrop-filter: blur(24px) saturate(180%);
+		-webkit-backdrop-filter: blur(24px) saturate(180%);
+		background: color-mix(in srgb, var(--bg) 78%, transparent);
+		border-bottom: 1px solid var(--border-soft);
 	}
 
 	.topbar .container-wide {
 		position: relative;
-		padding-top: 14px;
-		padding-bottom: 14px;
+		padding-top: calc(12px + env(safe-area-inset-top, 0px));
+		padding-bottom: 12px;
 	}
 
 	.brand {
 		font-family: var(--font-display);
-		font-weight: 400;
-		font-size: 1.5rem;
-		letter-spacing: 0.02em;
-		text-transform: uppercase;
-		/* pop-art "print offset" — a duplicate flat-color layer nudged behind
-		   the text, like a slightly misregistered comic print. On hover the
-		   misregistration snaps wider and flips to cyan. */
-		text-shadow: 2px 2px 0 var(--pop-pink);
-		transition: text-shadow 0.18s ease, letter-spacing 0.18s ease;
-		display: inline-block;
+		font-weight: 700;
+		font-size: 1.35rem;
+		letter-spacing: -0.02em;
+		display: inline-flex;
+		align-items: baseline;
+		gap: 1px;
+		transition: opacity 0.18s ease;
 	}
 
 	.brand:hover {
-		text-shadow: -3px 3px 0 var(--pop-cyan), 6px -2px 0 var(--pop-pink);
-		letter-spacing: 0.08em;
+		opacity: 0.75;
 	}
 
 	.brand-dot {
 		color: var(--accent);
-		text-shadow: none;
 	}
 
 	.offline-bar {
@@ -222,7 +217,7 @@
 
 	main {
 		flex: 1;
-		padding: 32px 0 64px;
+		padding: 28px 0 calc(56px + env(safe-area-inset-bottom, 0px));
 	}
 
 	/* route entrance: quick fade + rise, replayed on every navigation.
@@ -253,17 +248,17 @@
 	}
 
 	.ticker-wrap {
-		border-top: 2px solid var(--border);
-		background: var(--bg-elevated);
+		border-top: 1px solid var(--border-soft);
+		background: color-mix(in srgb, var(--bg-elevated) 55%, transparent);
 		padding: 10px 0;
-		color: var(--accent);
+		color: var(--text-dim);
 	}
 
 	.footer {
 		margin-top: auto;
-		border-top: 2px solid var(--border);
+		border-top: 1px solid var(--border-soft);
 		background: var(--bg-elevated);
-		padding: 20px 0;
+		padding: 20px 0 calc(20px + env(safe-area-inset-bottom, 0px));
 	}
 
 	.footer-content {
@@ -278,15 +273,6 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
-	}
-
-	.version {
-		font-size: 0.72rem;
-		color: var(--text-faint);
-		padding: 2px 6px;
-		border-radius: 4px;
-		background: var(--bg);
-		border: 1px solid var(--border-soft);
 	}
 
 	.creator-info {
@@ -324,21 +310,20 @@
 	.social-link:hover {
 		color: var(--accent-contrast);
 		background: var(--accent);
-		border-color: var(--accent-contrast);
+		border-color: var(--accent);
 		transform: translateY(-2px);
-		box-shadow: var(--shadow-sm);
+		box-shadow: 0 4px 14px 0 color-mix(in srgb, var(--accent) 35%, transparent);
 	}
 
 	.social-link.instagram:hover {
 		background: var(--pop-pink);
 		color: #fff;
 		border-color: var(--pop-pink);
-		box-shadow: var(--shadow-pink);
 	}
 
 	.social-link.linkedin:hover {
 		background: var(--pop-cyan);
-		color: #000;
+		color: #042436;
 		border-color: var(--pop-cyan);
 	}
 </style>

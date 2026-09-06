@@ -20,7 +20,11 @@
 		RANK_TIERS,
 	} from "$lib/utils/rank";
 	import PullToRefresh from "$lib/components/PullToRefresh.svelte";
-	import { longpress } from "$lib/utils/gestures";
+	import {
+		longpress,
+		swipeHorizontal,
+		swipeDownSheet,
+	} from "$lib/utils/gestures";
 	import { reveal } from "$lib/actions/motion";
 	import type {
 		AssignmentMode,
@@ -67,6 +71,50 @@
 	let currentMatchesCollapsed = $state(false);
 	let historicalMatchesCollapsed = $state(true);
 	let showRankMode = $state<"both" | "rank" | "rating">("both");
+
+	// Apple Senior UI/UX State & Gesture Controls
+	let activeContextMenu = $state<{
+		visible: boolean;
+		x: number;
+		y: number;
+		player: SessionPlayer | null;
+	}>({ visible: false, x: 0, y: 0, player: null });
+
+	function openAppleContextMenu(
+		e: PointerEvent | MouseEvent,
+		p: SessionPlayer,
+	) {
+		e.preventDefault();
+		activeContextMenu = {
+			visible: true,
+			x: Math.min(e.clientX, window.innerWidth - 250),
+			y: Math.min(e.clientY, window.innerHeight - 260),
+			player: p,
+		};
+	}
+
+	function closeAppleContextMenu() {
+		activeContextMenu = { visible: false, x: 0, y: 0, player: null };
+	}
+
+	async function quickTogglePlayerStatus(p: SessionPlayer) {
+		if (!token) return;
+		const nextStatus: SessionPlayerStatus =
+			p.status === "WAITING"
+				? "BREAK"
+				: p.status === "BREAK"
+					? "WAITING"
+					: "WAITING";
+		try {
+			await api.setSessionPlayerStatus(p.id, nextStatus, token);
+			toast.info(
+				`${name(p.player_id)} moved to ${statusLabel(nextStatus)}`,
+			);
+			poll();
+		} catch (err) {
+			toast.error("Could not update player status.");
+		}
+	}
 
 	// Host Edit Rating state
 	let editRatingPlayerId = $state<string | null>(null);
@@ -1732,7 +1780,24 @@
 							>Waiting — {waiting.length}</span
 						>
 						{#each waiting as p (p.id)}
-							<div class="prow card-tight">
+							<div
+								class="prow card-tight player-row-item"
+								role="listitem"
+								oncontextmenu={(e) =>
+									openAppleContextMenu(e, p)}
+								use:swipeHorizontal={{
+									onSwipeRight: () =>
+										quickTogglePlayerStatus(p),
+									onSwipeLeft: () =>
+										openAppleContextMenu(
+											new PointerEvent("pointerdown", {
+												clientX: 200,
+												clientY: 300,
+											}),
+											p,
+										),
+								}}
+							>
 								<a
 									class="pname"
 									href="/player/{p.player_id}?session={sessionId}"
@@ -1835,7 +1900,24 @@
 							>On break — {onBreak.length}</span
 						>
 						{#each onBreak as p (p.id)}
-							<div class="prow card-tight">
+							<div
+								class="prow card-tight player-row-item"
+								role="listitem"
+								oncontextmenu={(e) =>
+									openAppleContextMenu(e, p)}
+								use:swipeHorizontal={{
+									onSwipeRight: () =>
+										quickTogglePlayerStatus(p),
+									onSwipeLeft: () =>
+										openAppleContextMenu(
+											new PointerEvent("pointerdown", {
+												clientX: 200,
+												clientY: 300,
+											}),
+											p,
+										),
+								}}
+							>
 								<a
 									class="pname"
 									href="/player/{p.player_id}?session={sessionId}"
@@ -1987,6 +2069,71 @@
 				{/if}
 			{/if}
 		</section>
+
+		{#if activeContextMenu.visible && activeContextMenu.player}
+			<div
+				class="apple-context-backdrop"
+				onclick={closeAppleContextMenu}
+				role="presentation"
+			></div>
+			<div
+				class="apple-context-menu"
+				style="left: {activeContextMenu.x}px; top: {activeContextMenu.y}px;"
+			>
+				<div
+					class="spread"
+					style="padding: 6px 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 4px;"
+				>
+					<strong style="font-size: 0.9rem;"
+						>{name(activeContextMenu.player.player_id)}</strong
+					>
+					<span class="badge pill-sm"
+						>{statusLabel(activeContextMenu.player.status)}</span
+					>
+				</div>
+				<button
+					type="button"
+					onclick={() => {
+						const p = activeContextMenu.player;
+						closeAppleContextMenu();
+						if (p) quickTogglePlayerStatus(p);
+					}}
+				>
+					<span
+						>{activeContextMenu.player.status === "WAITING"
+							? "Move to Break"
+							: "Return to Queue"}</span
+					>
+					<span class="faint">Swipe ➔</span>
+				</button>
+				{#if isHost}
+					<button
+						type="button"
+						onclick={() => {
+							const p = activeContextMenu.player;
+							closeAppleContextMenu();
+							if (p) openEditRating(p.player_id);
+						}}
+					>
+						<span>Edit Rating &amp; Rank</span>
+						<span class="faint">Edit</span>
+					</button>
+					<div class="menu-divider"></div>
+					<button
+						type="button"
+						class="danger"
+						onclick={() => {
+							const p = activeContextMenu.player;
+							closeAppleContextMenu();
+							if (p) hostEndPlayer(p);
+						}}
+					>
+						<span>Mark as Left</span>
+						<span class="faint">Remove</span>
+					</button>
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Rendered outside the section above (not nested inside a `.rise-in`
 	     entrance-animated ancestor) so `position: fixed` here is actually
@@ -2783,8 +2930,8 @@
 <style>
 	.head h1 {
 		font-size: 1.5rem;
-		font-weight: 800;
-		letter-spacing: -0.01em;
+		font-weight: 700;
+		letter-spacing: -0.02em;
 		display: inline;
 		margin-right: 10px;
 	}
@@ -2829,11 +2976,15 @@
 		align-items: center;
 		gap: 2px;
 		padding: 6px;
-		border: 2px solid var(--accent);
+		border: 1px solid rgba(255, 255, 255, 0.14);
 		border-radius: 100px;
-		background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
-		backdrop-filter: blur(12px);
-		box-shadow: var(--shadow-pink);
+		background: rgba(18, 18, 24, 0.88);
+		backdrop-filter: blur(28px) saturate(190%);
+		-webkit-backdrop-filter: blur(28px) saturate(190%);
+		box-shadow:
+			0 16px 40px 0 rgba(0, 0, 0, 0.5),
+			0 2px 6px 0 rgba(0, 0, 0, 0.35),
+			inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
 		max-width: calc(100vw - 24px);
 	}
 
@@ -2845,12 +2996,14 @@
 	@keyframes dock-glow {
 		0%,
 		100% {
-			box-shadow: var(--shadow-pink);
+			border-color: rgba(255, 255, 255, 0.14);
 		}
 		50% {
+			border-color: color-mix(in srgb, var(--accent) 65%, transparent);
 			box-shadow:
-				0 0 0 10px rgba(255, 62, 165, 0.14),
-				var(--shadow-pink);
+				0 0 0 8px color-mix(in srgb, var(--accent) 14%, transparent),
+				0 16px 40px 0 rgba(0, 0, 0, 0.5),
+				inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
 		}
 	}
 
@@ -2865,10 +3018,10 @@
 		border-radius: 100px;
 		background: var(--accent);
 		color: var(--accent-contrast);
-		font-size: 0.62rem;
-		font-weight: 800;
+		font-size: 0.66rem;
+		font-weight: 600;
 		text-transform: uppercase;
-		letter-spacing: 0.1em;
+		letter-spacing: 0.08em;
 		margin-right: 4px;
 	}
 
@@ -2881,17 +3034,19 @@
 		border: none;
 		background: transparent;
 		color: var(--text-dim);
-		padding: 7px 14px;
+		padding: 8px 14px;
 		border-radius: 100px;
-		font-size: 0.62rem;
-		font-weight: 800;
+		font-size: 0.64rem;
+		font-weight: 600;
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.06em;
 		cursor: pointer;
+		min-height: 42px;
 		transition:
 			color 0.15s ease,
 			background-color 0.15s ease,
-			transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+			transform 0.15s var(--ease-spring);
+		-webkit-tap-highlight-color: transparent;
 	}
 
 	.dock-btn:hover {
@@ -2923,7 +3078,7 @@
 
 	.dock-count.cyan {
 		background: var(--pop-cyan);
-		color: #000;
+		color: #042436;
 	}
 
 	/* While the panel is open: raise above the backdrop on wide screens so
@@ -2964,26 +3119,36 @@
 		gap: 6px;
 		margin: 12px 0 4px;
 		padding: 4px;
-		border: 2px solid var(--border);
+		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
-		background: var(--bg-elevated-2);
+		background: color-mix(in srgb, var(--bg-elevated-2) 70%, transparent);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
 	}
 
 	.tool-tabs button {
 		border: 0;
-		border-radius: 6px;
+		border-radius: 9px;
 		background: transparent;
 		color: var(--text-dim);
 		padding: 10px 6px;
-		font-size: 0.78rem;
-		font-weight: 800;
-		text-transform: uppercase;
+		font-size: 0.86rem;
+		font-weight: 600;
 		cursor: pointer;
+		min-height: 40px;
+		transition:
+			background-color 0.18s ease,
+			color 0.18s ease,
+			box-shadow 0.18s var(--ease-spring);
+		-webkit-tap-highlight-color: transparent;
 	}
 
 	.tool-tabs button.active {
-		background: var(--accent);
-		color: var(--accent-contrast);
+		background: var(--bg-elevated-2);
+		color: var(--text);
+		box-shadow:
+			inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+			0 4px 12px 0 rgba(0, 0, 0, 0.35);
 	}
 
 	.club-code {
@@ -2994,8 +3159,9 @@
 		padding: 0;
 		margin-top: 4px;
 		text-align: left;
+		font-family: var(--font-mono);
 		font-size: 1.5rem;
-		font-weight: 800;
+		font-weight: 700;
 		letter-spacing: 0.08em;
 		color: var(--accent);
 		cursor: pointer;
@@ -3009,7 +3175,9 @@
 	.hud-backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
+		background: rgba(0, 0, 0, 0.5);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
 		z-index: 70;
 	}
 
@@ -3021,10 +3189,13 @@
 		z-index: 71;
 		max-height: 82vh;
 		overflow-y: auto;
-		background: var(--bg-elevated);
-		border-top: 2px solid var(--accent);
+		-webkit-overflow-scrolling: touch;
+		background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+		backdrop-filter: blur(28px) saturate(170%);
+		-webkit-backdrop-filter: blur(28px) saturate(170%);
+		border-top: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
 		border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-		box-shadow: 0 -6px 0 0 rgba(198, 255, 92, 0.12);
+		box-shadow: 0 -12px 40px 0 rgba(0, 0, 0, 0.5);
 		padding: 16px 18px calc(20px + env(safe-area-inset-bottom, 0px));
 	}
 
@@ -3032,7 +3203,9 @@
 		position: sticky;
 		top: 0;
 		z-index: 2;
-		background: var(--bg-elevated);
+		background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
 		padding: 14px 0 12px;
 		margin: -16px 0 4px;
 		border-bottom: 1px solid var(--border-soft);
@@ -3040,10 +3213,9 @@
 
 	.panel-title {
 		font-family: var(--font-display);
-		font-weight: 400;
-		font-size: 1.1rem;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
+		font-weight: 700;
+		font-size: 1.05rem;
+		letter-spacing: -0.01em;
 	}
 
 	.panel-close {
@@ -3062,8 +3234,8 @@
 	@media (min-width: 720px) {
 		.hud-panel {
 			left: auto;
-			width: 380px;
-			border-left: 2px solid var(--accent);
+			width: 400px;
+			border-left: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
 			border-radius: var(--radius-lg) 0 0 var(--radius-lg);
 		}
 	}
@@ -3077,8 +3249,9 @@
 		padding: 0;
 		margin-top: 4px;
 		text-align: left;
-		font-weight: 800;
-		letter-spacing: 0.08em;
+		font-family: var(--font-mono);
+		font-weight: 600;
+		letter-spacing: 0.04em;
 		color: var(--accent);
 		cursor: pointer;
 		transition: opacity 0.15s ease;
@@ -3122,7 +3295,20 @@
 	.players-grid {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
-		gap: 20px;
+		gap: 16px;
+	}
+
+	@media (max-width: 860px) {
+		.players-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	@media (max-width: 600px) {
+		.players-grid {
+			grid-template-columns: 1fr;
+			gap: 14px;
+		}
 	}
 
 	.col-label {
@@ -3134,11 +3320,26 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 10px 12px;
+		gap: 10px;
+		padding: 12px 14px;
 		background: var(--bg-elevated);
 		border: 1px solid var(--border-soft);
 		border-radius: var(--radius-sm);
 		font-size: 0.9rem;
+		min-height: 46px;
+		box-sizing: border-box;
+	}
+
+	.prow .pname {
+		flex: 1;
+		min-width: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.prow .row {
+		flex-shrink: 0;
 	}
 
 	.pname {
@@ -3249,12 +3450,12 @@
 	}
 
 	.drag-chip {
-		border: 2px solid var(--border);
+		border: 1.5px solid var(--border);
 		background: var(--bg-elevated);
 		color: var(--text);
 		padding: 8px 10px;
 		border-radius: var(--radius-sm);
-		font-weight: 700;
+		font-weight: 600;
 		font-size: 0.85rem;
 		cursor: grab;
 		touch-action: none;
@@ -3271,13 +3472,14 @@
 		transform: translate(-50%, -50%);
 		background: var(--accent);
 		color: var(--accent-contrast);
-		border: 2px solid var(--accent-contrast);
 		padding: 8px 14px;
-		border-radius: 100px;
-		font-weight: 800;
+		border-radius: 12px;
+		font-weight: 600;
 		font-size: 0.85rem;
 		pointer-events: none;
-		box-shadow: var(--shadow-sm);
+		box-shadow:
+			0 10px 28px 0 color-mix(in srgb, var(--accent) 35%, transparent),
+			0 2px 6px 0 rgba(0, 0, 0, 0.3);
 	}
 
 	.vs {
@@ -3363,8 +3565,9 @@
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.75);
-		backdrop-filter: blur(4px);
+		background: rgba(0, 0, 0, 0.6);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
 		z-index: 199;
 	}
 	.modal-dialog {
@@ -3374,14 +3577,17 @@
 		transform: translate(-50%, -50%);
 		z-index: 200;
 		width: calc(100% - 32px);
-		max-width: 420px;
+		max-width: 440px;
 		max-height: calc(100vh - 40px);
 		overflow-y: auto;
-		background: var(--bg-elevated);
-		border: 2px solid var(--accent);
+		background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+		backdrop-filter: blur(28px) saturate(180%);
+		-webkit-backdrop-filter: blur(28px) saturate(180%);
+		border: 1px solid var(--border);
 		box-shadow:
-			0 12px 36px rgba(0, 0, 0, 0.85),
-			var(--shadow);
+			0 24px 60px 0 rgba(0, 0, 0, 0.6),
+			0 2px 8px 0 rgba(0, 0, 0, 0.4),
+			inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
 		padding: 22px;
 		border-radius: var(--radius-lg);
 	}
@@ -3409,9 +3615,9 @@
 	}
 
 	.session-stats-bar {
-		background: var(--bg-elevated-2);
+		background: color-mix(in srgb, var(--bg-elevated-2) 70%, transparent);
 		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border-radius: var(--radius);
 		padding: 12px 18px;
 	}
 	.stat-item {
@@ -3421,7 +3627,8 @@
 	}
 	.stat-val {
 		font-size: 1.15rem;
-		font-weight: 800;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
 	}
 	.stat-val.accent {
 		color: var(--accent);

@@ -58,9 +58,9 @@
 	.glyph {
 		width: 30px;
 		height: 30px;
-		fill: none;
-		stroke: var(--pop-pink);
-		stroke-width: 1.8;
+		fill: rgba(255, 255, 255, 0.04);
+		stroke: var(--accent);
+		stroke-width: 2;
 		stroke-linejoin: round;
 		stroke-linecap: round;
 	}

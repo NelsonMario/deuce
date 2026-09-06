@@ -85,8 +85,9 @@
 	}
 
 	.pull-indicator.ready {
-		background: var(--border);
-		color: var(--accent-contrast);
+		background: color-mix(in srgb, var(--accent) 18%, var(--bg-elevated));
+		border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+		color: var(--accent);
 	}
 
 	.pull-icon {

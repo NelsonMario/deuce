@@ -176,6 +176,7 @@
 				bind:value={joinCode}
 				autocomplete="off"
 				style="letter-spacing:0.08em; text-transform:uppercase;"
+				enterkeyhint="next"
 				required
 			/>
 			{#if mode === 'club'}
@@ -192,6 +193,7 @@
 				bind:value={displayName}
 				maxlength="60"
 				autocomplete="off"
+				enterkeyhint="go"
 				required
 			/>
 		</div>
@@ -220,14 +222,16 @@
 
 <style>
 	h1 {
-		font-size: 1.7rem;
-		font-weight: 800;
-		letter-spacing: -0.01em;
+		font-size: 1.8rem;
+		font-weight: 700;
+		letter-spacing: -0.02em;
 	}
 
 	.lead {
-		margin: 6px 0 20px;
-		font-size: 0.9rem;
+		margin: 8px 0 22px;
+		font-size: 0.95rem;
+		color: var(--text-dim);
+		max-width: 460px;
 	}
 
 	.mode-toggle {
@@ -236,7 +240,7 @@
 	}
 
 	.hint {
-		font-size: 0.76rem;
+		font-size: 0.78rem;
 		margin-top: 2px;
 	}
 
@@ -248,9 +252,9 @@
 	   small, but it makes the one-field-that-matters feel deliberate */
 	#code {
 		transition:
-			border-color 0.15s ease,
-			box-shadow 0.15s ease,
-			letter-spacing 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+			border-color 0.2s ease,
+			box-shadow 0.2s var(--ease-spring),
+			letter-spacing 0.3s var(--ease-spring);
 	}
 
 	#code:focus {

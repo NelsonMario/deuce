@@ -136,8 +136,8 @@
 
 	.hero {
 		position: relative;
-		padding-top: 8vh;
-		padding-bottom: 9vh;
+		padding-top: 10vh;
+		padding-bottom: 11vh;
 		text-align: center;
 	}
 
@@ -209,26 +209,28 @@
 
 	h1 {
 		position: relative;
-		font-size: clamp(1.9rem, 6vw, 2.6rem);
+		font-size: clamp(1.55rem, 5.4vw, 2.4rem);
 		font-weight: 700;
-		letter-spacing: -0.02em;
-		line-height: 1.15;
+		letter-spacing: -0.025em;
+		line-height: 1.18;
 		min-height: 2.4em;
-		max-width: 620px;
+		max-width: 600px;
 		margin: 0 auto;
 		text-wrap: balance;
 	}
 
 	.sub {
-		margin: 18px auto 0;
-		max-width: 440px;
+		margin: 16px auto 0;
+		max-width: 420px;
 		color: var(--text-dim);
-		font-size: 1rem;
+		font-size: 1.02rem;
+		line-height: 1.5;
 	}
 
 	.cta {
-		margin: 32px auto 0;
+		margin: 30px auto 0;
 		max-width: 320px;
+		gap: 12px;
 	}
 
 	.magnetic {
@@ -273,11 +275,10 @@
 
 	.how-title {
 		font-family: var(--font-display);
-		font-weight: 400;
-		font-size: clamp(1.6rem, 4vw, 2.2rem);
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
-		margin-bottom: 18px;
+		font-weight: 700;
+		font-size: clamp(1.4rem, 4vw, 1.9rem);
+		letter-spacing: -0.02em;
+		margin-bottom: 20px;
 	}
 
 	.how-grid {
@@ -307,7 +308,7 @@
 		color: var(--accent-contrast);
 		font-family: var(--font-mono);
 		font-size: 0.75rem;
-		font-weight: 800;
+		font-weight: 700;
 		transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
@@ -321,6 +322,11 @@
 
 	.how-card:nth-child(3) .how-num {
 		background: var(--pop-cyan);
+	}
+
+	.how-card:nth-child(2) .how-num,
+	.how-card:nth-child(3) .how-num {
+		color: #1a1a1c;
 	}
 
 	.how-card h3 {

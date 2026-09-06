@@ -302,23 +302,26 @@
 
 <style>
 	.back {
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 		margin-bottom: 16px;
-		font-size: 0.85rem;
-		color: var(--text-dim);
+		padding: 8px 4px;
+		font-size: 0.9rem;
+		color: var(--accent);
 		transition:
 			color 0.15s ease,
-			transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+			transform 0.2s var(--ease-spring);
+		min-height: 44px;
 	}
 
 	.back:hover {
-		color: var(--accent);
 		transform: translateX(-4px);
 	}
 
 	.match-card h1 {
 		font-size: 1.4rem;
-		font-weight: 800;
+		font-weight: 700;
 	}
 
 	.small {
@@ -332,21 +335,22 @@
 		gap: 16px;
 		margin: 20px 0;
 		padding: 16px;
-		background: var(--bg-elevated-2);
-		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--bg-elevated-2) 60%, transparent);
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius);
 		text-align: center;
 	}
 
 	.proposal .team p {
-		font-weight: 700;
+		font-weight: 600;
 		margin: 4px 0;
 	}
 
 	.vs {
 		color: var(--text-faint);
 		font-size: 0.8rem;
-		text-transform: uppercase;
-		letter-spacing: 0.2em;
+		font-weight: 600;
+		letter-spacing: 0.14em;
 		animation: vs-breathe 2.4s ease-in-out infinite;
 	}
 
