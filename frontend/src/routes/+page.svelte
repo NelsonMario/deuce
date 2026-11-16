@@ -1,12 +1,8 @@
 <script lang="ts">
 	import Typewriter from "$lib/components/Typewriter.svelte";
-<<<<<<< Updated upstream
-	import { identity } from "$lib/stores/identity";
-=======
 	import Marquee from "$lib/components/Marquee.svelte";
 	import SpinBadge from "$lib/components/SpinBadge.svelte";
 	import { reveal, tilt, magnetic, trackPointer } from "$lib/actions/motion";
->>>>>>> Stashed changes
 
 	const phrases = [
 		"Court 2 is ready: Alice / Bob vs Cara / Dan. 🏸",
@@ -15,9 +11,6 @@
 		"No more asking “who's playing next?”",
 	];
 
-<<<<<<< Updated upstream
-	let lastSessionId = $derived($identity.lastSessionId);
-=======
 	const ticker = [
 		"Host types `next`",
 		"Group sees the match assignment",
@@ -28,61 +21,12 @@
 
 	// Interactive Chat Simulator Tab
 	let simTab = $state<"host" | "player">("player");
->>>>>>> Stashed changes
 </script>
 
 <svelte:head>
 	<title>Deuce — WhatsApp Badminton Court Manager</title>
 </svelte:head>
 
-<<<<<<< Updated upstream
-<section class="container hero halftone rise-in">
-	<p class="kicker">Smart(?) Court Rotation</p>
-	<h1>
-		<Typewriter {phrases} />
-	</h1>
-	<p class="sub">
-		Build your club. Bring your crew. We’ll handle the rotation.
-	</p>
-
-	<div class="cta stack">
-		<a href="/host" class="btn btn-primary btn-block">Host a session</a>
-		<a href="/join" class="btn btn-ghost btn-block">Join with a code</a>
-	</div>
-
-	{#if lastSessionId}
-		<a href="/session/{lastSessionId}" class="continue">
-			↳ Continue where you left off
-		</a>
-	{/if}
-</section>
-
-<section class="container-wide how">
-	<div class="how-grid">
-		<div class="how-card card card-tight rise-in">
-			<span class="how-num">01</span>
-			<h3>Create</h3>
-			<p class="muted">
-				Host makes a club and a session, gets a join code to share on
-				the spot.
-			</p>
-		</div>
-		<div class="how-card card card-tight rise-in">
-			<span class="how-num">02</span>
-			<h3>Join</h3>
-			<p class="muted">
-				Players scan or type the code, add their name, and land in the
-				queue.
-			</p>
-		</div>
-		<div class="how-card card card-tight rise-in">
-			<span class="how-num">03</span>
-			<h3>Play</h3>
-			<p class="muted">
-				Matches are generated from ratings and wait time. Scores feed
-				the next one.
-			</p>
-=======
 <!-- HERO SECTION -->
 <section class="hero-band halftone rise-in" use:trackPointer>
 	<div class="hero-fx" aria-hidden="true">
@@ -356,34 +300,17 @@
 				<li><code>matches</code> <span>View match states</span></li>
 				<li><code>help</code> <span>Show commands available to you</span></li>
 			</ul>
->>>>>>> Stashed changes
 		</div>
 	</div>
 </section>
 
 <style>
+	.hero-band {
+		position: relative;
+		overflow: hidden;
+	}
+
 	.hero {
-<<<<<<< Updated upstream
-		padding-top: 8vh;
-		text-align: center;
-	}
-
-	.kicker {
-		text-transform: uppercase;
-		letter-spacing: 0.14em;
-		font-size: 0.72rem;
-		font-weight: 700;
-		color: var(--accent);
-		margin-bottom: 14px;
-	}
-
-	h1 {
-		font-size: clamp(1.9rem, 6vw, 2.6rem);
-		font-weight: 800;
-		letter-spacing: -0.02em;
-		line-height: 1.15;
-		min-height: 2.4em;
-=======
 		position: relative;
 		padding-top: 8vh;
 		padding-bottom: 8vh;
@@ -455,36 +382,10 @@
 		max-width: 680px;
 		margin: 0 auto;
 		text-wrap: balance;
->>>>>>> Stashed changes
 	}
 
 	.sub {
 		margin: 18px auto 0;
-<<<<<<< Updated upstream
-		max-width: 440px;
-		color: var(--text-dim);
-		font-size: 1rem;
-	}
-
-	.cta {
-		margin: 32px auto 0;
-		max-width: 320px;
-	}
-
-	.continue {
-		display: inline-block;
-		margin-top: 22px;
-		font-size: 0.85rem;
-		color: var(--text-dim);
-	}
-
-	.continue:hover {
-		color: var(--accent);
-	}
-
-	.how {
-		margin-top: 72px;
-=======
 		max-width: 520px;
 		color: var(--text-dim);
 		font-size: 1.05rem;
@@ -515,7 +416,6 @@
 		letter-spacing: 0.12em;
 		color: var(--accent);
 		margin-bottom: 8px;
->>>>>>> Stashed changes
 	}
 
 	.max-w {
@@ -554,21 +454,12 @@
 		border-bottom: 1px solid #334155;
 	}
 
-<<<<<<< Updated upstream
-	.how-card {
-		animation-delay: calc(var(--i, 0) * 60ms);
-	}
-
-	.how-num {
-		display: inline-flex;
-=======
 	.avatar {
 		width: 40px;
 		height: 40px;
 		border-radius: 50%;
 		background: var(--accent);
 		display: flex;
->>>>>>> Stashed changes
 		align-items: center;
 		justify-content: center;
 		font-size: 1.2rem;
@@ -754,30 +645,6 @@
 		width: 28px;
 		height: 28px;
 		border-radius: 50%;
-<<<<<<< Updated upstream
-		background: var(--accent);
-		border: 2px solid var(--accent-contrast);
-		color: var(--accent-contrast);
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		font-weight: 800;
-	}
-
-	.how-card:nth-child(2) .how-num {
-		background: var(--pop-pink);
-	}
-
-	.how-card:nth-child(3) .how-num {
-		background: var(--pop-cyan);
-	}
-
-	.how-card h3 {
-		margin: 8px 0 6px;
-		font-size: 1rem;
-	}
-
-	.how-card p {
-=======
 		background: var(--card);
 		border: 1px solid var(--border);
 		display: flex;
@@ -793,7 +660,6 @@
 		background: var(--card);
 		border-left: 3px solid #eab308;
 		border-radius: 4px;
->>>>>>> Stashed changes
 		font-size: 0.85rem;
 	}
 
@@ -865,8 +731,6 @@
 		.commands-grid {
 			grid-template-columns: 1fr;
 		}
-<<<<<<< Updated upstream
-=======
 	}
 
 	.command-card {
@@ -911,6 +775,5 @@
 	.cmd-list span {
 		color: var(--text-dim);
 		font-size: 0.82rem;
->>>>>>> Stashed changes
 	}
 </style>
