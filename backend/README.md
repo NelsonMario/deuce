@@ -319,30 +319,37 @@ reply.
 
 | Area | Commands |
 |---|---|
-| Session | `start`, `stop` (posts a recap to admins), `status`, `players`, `matches` |
-| Courts | `courts <n>` (adds courts), `next`, `done <court> <a>-<b>`, `cancel` |
-| Players | `checkin <names>` (roster members), `add <name> [M/F] [A-E]`, `remove <name>` |
-| Manual | `mode auto` / `mode manual`, `suggest <4 names>`, `assign <court> A B vs C D`, `pause`, `resume` |
-| Roster | `roster` + one `Name [M/F] [A-E]` per line, `members`, `grade <name> <A-E>` |
+| Session | `start`, `stop` (posts a recap to admins), `status` (courts, waiting, latest results) |
+| Players | `in <names>` (members; `Name M/F <grade>` also creates one), `out <name>` |
+| Courts | `courts [n]` (adds courts; no number lists them), `next`, `done <court> <a>-<b>`, `cancel` |
+| Host | `auto`, `manual`, `suggest <4 names>`, `assign <court> A B vs C D` |
+| Member | `member [name]` (list, or one member), `member` + one `Name [M/F] [A-E]` per line, `grade <name> [A-E]` |
 | Setup (bot phone) | `setup admin <club>`, `setup announce`, `setup status` |
 
-Names with spaces are separated with commas: `checkin Mary Jane, Bob`,
-`assign 1 Mary Jane, Bob vs Cara, Dan`.
+Names with spaces are separated with commas: `in Mary Jane, Bob`,
+`assign 1 Mary Jane, Bob vs Cara, Dan`. Without commas, a single-letter
+gender or grade word belongs to the name before it (`in Andi Eko M C`).
+
+Old command names (`checkin`, `add`, `remove`, `players`, `matches`, `mode`,
+`pause`, `resume`, `roster`, `members`) still work but are not listed in `help`.
+`auto` sets `AUTOMATIC` mode and re-enables auto-fill; `manual` sets
+`MANUAL` mode.
 
 - `done` starts the court's match if it was only assigned, finishes it with
   the score (ratings update), frees the court and posts the result.
 - `assign` and `suggest` infer the format from genders (all men → men's,
   all women → women's, otherwise mixed). `MIXED_DOUBLES` accepts any gender
   mix, for automatic and manual matches alike.
-- `remove` takes a waiting player out of the rotation; `add` or `checkin`
-  brings them back.
+- `out` takes a waiting player out of the rotation; `in` brings them back.
+- `in` only creates a member when a gender or grade is given, so a typo in
+  a name is reported instead of creating a new member.
 
 ### Grades and recap
 
 `club_members.grade` (A–E) is the host's skill grade. It sets a new member's
 starting rating — A=1400, B=1200, C=1000 (the system default), D=800,
 E=600 — after which the Elo rating moves with results. Re-importing a member
-with `roster` updates their stored grade but keeps their earned rating;
+with `member` updates their stored grade but keeps their earned rating;
 `grade <name> <X>` explicitly resets the rating to the grade's value.
 
 `stop` replies with a recap: each player's games, wins/losses and rating

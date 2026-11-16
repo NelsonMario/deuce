@@ -25,6 +25,17 @@ build.
   `PATCH /sessions/:sessionId/auto-fill` on the backend, plus the
   matchmaking controls in the session dashboard's host tools.)
 
+### Changed
+
+- Simpler WhatsApp bot commands, grouped as Session, Players, Courts, Host
+  and Member: `in` / `out` replace `checkin`, `add` and `remove`; `auto` /
+  `manual` replace `mode`, `pause` and `resume`; `member` replaces `roster`
+  and `members`; `status` now shows courts with lineups, who's waiting and
+  the latest results (replacing `players` and `matches`). `courts`,
+  `member` and `grade` show information when their last argument is left
+  off. The old names still work as hidden aliases, and `help` has a new,
+  more readable layout.
+
 ## [0.1.0] - 2026-08-11
 
 Baseline release — the app as it stands today, versioned for the first time.

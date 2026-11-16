@@ -82,12 +82,10 @@ func (c *GroupCommands) Handle(ctx context.Context, req Request) (string, error)
 
 	// Club-level commands work without a session.
 	switch cmd.Name {
-	case "roster":
-		return c.roster(ctx, clubID, cmd.Rest)
+	case "member":
+		return c.member(ctx, clubID, cmd.Rest)
 	case "grade":
 		return c.grade(ctx, clubID, cmd.Args)
-	case "members":
-		return c.members(ctx, clubID)
 	}
 
 	sess, err := c.currentSession(ctx, clubID)
@@ -108,16 +106,12 @@ func (c *GroupCommands) Handle(ctx context.Context, req Request) (string, error)
 			return "", err
 		}
 		c.announce(ctx, req, "🏸 *Session started!* Lineups will be posted here.")
-		return "🏸 Session created and started. Next: `courts <n>`, then `checkin` or `add` players.", nil
+		return "🏸 Session created and started. Next: `courts <n>`, then `in <names>`.", nil
 	}
 
 	switch cmd.Name {
 	case "status":
 		return c.status(ctx, sess)
-	case "players":
-		return c.playersList(ctx, sess)
-	case "matches":
-		return c.matchesList(ctx, sess)
 	case "start":
 		if sess.Status == session.StatusActive {
 			return "ℹ️ Session is already active.", nil
@@ -140,22 +134,16 @@ func (c *GroupCommands) Handle(ctx context.Context, req Request) (string, error)
 			return "🏁 Session finished. (The recap could not be built.)", err
 		}
 		return "🏁 Session finished.\n\n" + recap, nil
-	case "pause":
-		_, err := c.sessions.SetAutoFillEnabled(ctx, sess.ID, false)
-		return result("⏸️ Automatic matchmaking paused. Use `next` or `assign` to fill courts.", err)
-	case "resume":
-		_, err := c.sessions.SetAutoFillEnabled(ctx, sess.ID, true)
-		return result("▶️ Automatic matchmaking resumed.", err)
-	case "mode":
-		return c.mode(ctx, sess, cmd.Args)
+	case "auto":
+		return c.auto(ctx, sess)
+	case "manual":
+		return c.manual(ctx, sess)
 	case "next":
 		return c.next(ctx, sess)
-	case "add":
-		return c.add(ctx, clubID, sess, cmd.Rest)
-	case "checkin":
-		return c.checkin(ctx, clubID, sess, cmd.Rest)
-	case "remove":
-		return c.remove(ctx, sess, cmd.Rest)
+	case "in":
+		return c.checkIn(ctx, clubID, sess, cmd)
+	case "out":
+		return c.out(ctx, sess, cmd.Rest)
 	case "courts":
 		return c.courts(ctx, sess, cmd.Args)
 	case "suggest":
@@ -262,18 +250,31 @@ func setOrNot(jid string) string {
 	return "set ✅"
 }
 
-// ---------------------------------------------------------------- roster
+// ---------------------------------------------------------------- members
 
-func (c *GroupCommands) roster(ctx context.Context, clubID uuid.UUID, rest string) (string, error) {
-	lines := strings.Split(rest, "\n")
+// member lists the members (no text), shows one member (a name), or adds and
+// updates members (one "Name [M/F] [A-E]" per line, or one line with a
+// gender or grade).
+func (c *GroupCommands) member(ctx context.Context, clubID uuid.UUID, rest string) (string, error) {
+	if rest == "" {
+		return c.memberList(ctx, clubID)
+	}
+	if !strings.Contains(rest, "\n") {
+		if ml := parseMemberLine(rest); ml.Gender == "" && ml.Grade == "" {
+			return c.memberInfo(ctx, clubID, ml.Name)
+		}
+	}
+	return c.upsertMembers(ctx, clubID, rest)
+}
+
+func (c *GroupCommands) upsertMembers(ctx context.Context, clubID uuid.UUID, rest string) (string, error) {
 	added, updated := 0, 0
 	var problems []string
-	for _, line := range lines {
+	for _, line := range strings.Split(rest, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		ml := parseMemberLine(line)
-		in, err := memberInput(ml)
+		in, err := memberInput(parseMemberLine(line))
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("%q: %s", strings.TrimSpace(line), err))
 			continue
@@ -289,10 +290,7 @@ func (c *GroupCommands) roster(ctx context.Context, clubID uuid.UUID, rest strin
 			updated++
 		}
 	}
-	if added+updated+len(problems) == 0 {
-		return "Usage: `roster` followed by one member per line:\n```\nroster\nAlice F A\nBob M B\n```\nGrades A–E set the starting rating (A=1400 … E=600).", nil
-	}
-	reply := fmt.Sprintf("✅ Roster updated: %d added, %d updated.", added, updated)
+	reply := fmt.Sprintf("✅ Members updated: %d added, %d updated.", added, updated)
 	if updated > 0 {
 		reply += "\nExisting members keep their earned rating; use `grade <name> <A-E>` to reset one."
 	}
@@ -324,11 +322,17 @@ func memberInput(ml memberLine) (club.MemberInput, error) {
 	return in, nil
 }
 
+// grade shows a member's grade (`grade Bob`) or changes it and resets their
+// rating to it (`grade Bob A`).
 func (c *GroupCommands) grade(ctx context.Context, clubID uuid.UUID, args []string) (string, error) {
-	if len(args) < 2 {
+	if len(args) == 0 {
 		return "Usage: `grade <name> <A-E>` (resets the rating to the grade's starting rating).", nil
 	}
-	g, ok := club.ParseGrade(args[len(args)-1])
+	last := args[len(args)-1]
+	if len(args) == 1 || len([]rune(last)) != 1 {
+		return c.memberInfo(ctx, clubID, strings.Join(args, " "))
+	}
+	g, ok := club.ParseGrade(last)
 	if !ok {
 		return "⚠️ Grade must be A, B, C, D or E.", nil
 	}
@@ -336,82 +340,118 @@ func (c *GroupCommands) grade(ctx context.Context, clubID uuid.UUID, args []stri
 	entry, err := c.clubs.SetGrade(ctx, clubID, name, g)
 	if err != nil {
 		if appErr, ok := apperr.As(err); ok && appErr.Code == apperr.CodeNotFound {
-			return fmt.Sprintf("⚠️ %s is not in the roster. Add them with `roster` or `add`.", name), nil
+			return notAMember(name), nil
 		}
 		return "", err
 	}
 	return fmt.Sprintf("✅ %s is now grade %s (rating reset to %.0f).", entry.DisplayName, g, entry.Rating), nil
 }
 
-func (c *GroupCommands) members(ctx context.Context, clubID uuid.UUID) (string, error) {
+func (c *GroupCommands) memberList(ctx context.Context, clubID uuid.UUID) (string, error) {
 	roster, err := c.clubs.Roster(ctx, clubID)
 	if err != nil {
 		return "", err
 	}
 	if len(roster) == 0 {
-		return "ℹ️ The roster is empty. Import it with `roster`.", nil
+		return "ℹ️ No members yet. Add them with `member` followed by one `Name M/F Grade` per line.", nil
 	}
 	lines := []string{fmt.Sprintf("👥 *Members* (%d)", len(roster))}
 	for _, e := range roster {
-		lines = append(lines, fmt.Sprintf("• %s (%s) — %s · %.0f", e.DisplayName, genderLetter(e.Gender), gradeOrDash(e.Grade), e.Rating))
+		lines = append(lines, memberLineText(e))
 	}
 	return strings.Join(lines, "\n"), nil
 }
 
-// ---------------------------------------------------------------- session players
-
-func (c *GroupCommands) add(ctx context.Context, clubID uuid.UUID, sess session.Session, rest string) (string, error) {
-	ml := parseMemberLine(rest)
-	in, err := memberInput(ml)
-	if err != nil {
-		return "Usage: `add <name> [M/F] [A-E]`", nil
-	}
-	entry, created, err := c.clubs.UpsertMember(ctx, clubID, in)
+func (c *GroupCommands) memberInfo(ctx context.Context, clubID uuid.UUID, name string) (string, error) {
+	roster, err := c.clubs.Roster(ctx, clubID)
 	if err != nil {
 		return "", err
 	}
-	sp, err := c.addToSession(ctx, sess, entry)
-	if err != nil {
-		return "", err
+	for _, e := range roster {
+		if strings.EqualFold(e.DisplayName, name) {
+			return memberLineText(e), nil
+		}
 	}
-	if sp.Status == session.PlayerPlaying {
-		return fmt.Sprintf("ℹ️ %s is already on court.", entry.DisplayName), nil
-	}
-	note := ""
-	if created {
-		note = fmt.Sprintf(" New member, grade %s.", gradeOrDash(entry.Grade))
-	}
-	return fmt.Sprintf("✅ %s added to the waiting queue.%s", entry.DisplayName, note), nil
+	return notAMember(name), nil
 }
 
-func (c *GroupCommands) checkin(ctx context.Context, clubID uuid.UUID, sess session.Session, rest string) (string, error) {
-	names := splitNames(rest)
-	if len(names) == 0 {
-		return "Usage: `checkin Alice Bob Cara` (use commas for names with spaces: `checkin Mary Jane, Bob`).", nil
+func memberLineText(e club.RosterEntry) string {
+	return fmt.Sprintf("• %s (%s) — %s · %.0f", e.DisplayName, genderLetter(e.Gender), gradeOrDash(e.Grade), e.Rating)
+}
+
+func notAMember(name string) string {
+	return fmt.Sprintf("⚠️ %s is not a member. Add with `in %s M/F <grade>`.", name, name)
+}
+
+// ---------------------------------------------------------------- session players
+
+// checkIn puts players in the waiting queue. Members are found by name; an
+// entry with a gender or grade ("Eko M C") also creates or updates the
+// member. Unknown names without either are reported, not created, so a typo
+// never makes a new member.
+func (c *GroupCommands) checkIn(ctx context.Context, clubID uuid.UUID, sess session.Session, cmd Command) (string, error) {
+	var entries []memberLine
+	if cmd.Single {
+		entries = []memberLine{parseMemberLine(cmd.Rest)}
+	} else {
+		entries = parseInEntries(cmd.Rest)
 	}
-	var in, unknown []string
-	for _, name := range names {
-		p, err := c.clubs.FindMemberByName(ctx, clubID, name)
-		if err != nil {
-			unknown = append(unknown, name)
-			continue
+	var in, created, onCourt, unknown, problems []string
+	for _, ml := range entries {
+		var entry club.RosterEntry
+		if ml.Gender == "" && ml.Grade == "" {
+			p, err := c.clubs.FindMemberByName(ctx, clubID, ml.Name)
+			if err != nil {
+				unknown = append(unknown, ml.Name)
+				continue
+			}
+			entry = club.RosterEntry{PlayerID: p.ID, DisplayName: p.DisplayName, Gender: p.Gender}
+		} else {
+			mi, err := memberInput(ml)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("%s: %s", ml.Name, err))
+				continue
+			}
+			e, isNew, err := c.clubs.UpsertMember(ctx, clubID, mi)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("%s: %s", ml.Name, userMessage(err)))
+				continue
+			}
+			if isNew {
+				created = append(created, fmt.Sprintf("%s (%s)", e.DisplayName, gradeOrDash(e.Grade)))
+			}
+			entry = e
 		}
-		if _, err := c.addToSession(ctx, sess, club.RosterEntry{PlayerID: p.ID, DisplayName: p.DisplayName, Gender: p.Gender}); err != nil {
+		sp, err := c.addToSession(ctx, sess, entry)
+		if err != nil {
 			return "", err
 		}
-		in = append(in, p.DisplayName)
+		if sp.Status == session.PlayerPlaying {
+			onCourt = append(onCourt, entry.DisplayName)
+			continue
+		}
+		in = append(in, entry.DisplayName)
 	}
-	reply := ""
+	if len(entries) == 0 {
+		return "Usage: `in Andi, Budi` (add `M/F <grade>` for a new player: `in Eko M C`).", nil
+	}
+	var lines []string
 	if len(in) > 0 {
-		reply = fmt.Sprintf("✅ Checked in (%d): %s", len(in), strings.Join(in, ", "))
+		lines = append(lines, fmt.Sprintf("✅ Checked in (%d): %s", len(in), strings.Join(in, ", ")))
+	}
+	if len(created) > 0 {
+		lines = append(lines, "🆕 New members: "+strings.Join(created, ", "))
+	}
+	if len(onCourt) > 0 {
+		lines = append(lines, "ℹ️ Already on court: "+strings.Join(onCourt, ", "))
 	}
 	if len(unknown) > 0 {
-		if reply != "" {
-			reply += "\n"
-		}
-		reply += fmt.Sprintf("⚠️ Not in the roster: %s. Add with `add <name> M/F <grade>`.", strings.Join(unknown, ", "))
+		lines = append(lines, fmt.Sprintf("⚠️ Not members: %s. Add with `in <name> M/F <grade>`.", strings.Join(unknown, ", ")))
 	}
-	return reply, nil
+	if len(problems) > 0 {
+		lines = append(lines, "⚠️ Skipped: "+strings.Join(problems, "; "))
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 func (c *GroupCommands) addToSession(ctx context.Context, sess session.Session, e club.RosterEntry) (session.Player, error) {
@@ -425,12 +465,12 @@ func (c *GroupCommands) addToSession(ctx context.Context, sess session.Session, 
 	return added[0], nil
 }
 
-// remove takes a player out of the rotation (they went home). They can be
-// brought back later with `add` or `checkin`.
-func (c *GroupCommands) remove(ctx context.Context, sess session.Session, rest string) (string, error) {
+// out takes a player out of the rotation (they went home). They can be
+// brought back later with `in`.
+func (c *GroupCommands) out(ctx context.Context, sess session.Session, rest string) (string, error) {
 	name := strings.Join(strings.Fields(rest), " ")
 	if name == "" {
-		return "Usage: `remove <name>`", nil
+		return "Usage: `out <name>`", nil
 	}
 	sp, p, err := c.findSessionPlayer(ctx, sess, name)
 	if err != nil {
@@ -448,7 +488,7 @@ func (c *GroupCommands) remove(ctx context.Context, sess session.Session, rest s
 	if _, err := c.sessions.SetPlayerStatus(ctx, sp.ID, session.PlayerEnded); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("👋 %s removed from the queue.", p.DisplayName), nil
+	return fmt.Sprintf("👋 %s is out of the rotation. Bring them back with `in %s`.", p.DisplayName, p.DisplayName), nil
 }
 
 func (c *GroupCommands) findSessionPlayer(ctx context.Context, sess session.Session, name string) (*session.Player, player.Player, error) {
@@ -471,7 +511,11 @@ func (c *GroupCommands) findSessionPlayer(ctx context.Context, sess session.Sess
 
 // ---------------------------------------------------------------- courts & matches
 
+// courts lists the courts (no argument) or grows them to n.
 func (c *GroupCommands) courts(ctx context.Context, sess session.Session, args []string) (string, error) {
+	if len(args) == 0 {
+		return c.courtList(ctx, sess)
+	}
 	total, err := strconv.Atoi(args[0])
 	if err != nil || total < 1 || total > 20 {
 		return "⚠️ Court count must be between 1 and 20.", nil
@@ -491,23 +535,23 @@ func (c *GroupCommands) courts(ctx context.Context, sess session.Session, args [
 	return fmt.Sprintf("✅ %d court(s) configured.", total), nil
 }
 
-func (c *GroupCommands) mode(ctx context.Context, sess session.Session, args []string) (string, error) {
-	if len(args) != 1 {
-		return "Usage: `mode auto` (bot fills courts) or `mode manual` (you `assign` every court).", nil
+// auto lets the bot fill free courts by itself.
+func (c *GroupCommands) auto(ctx context.Context, sess session.Session) (string, error) {
+	if _, err := c.sessions.SetAssignmentMode(ctx, sess.ID, session.AssignmentAutomatic); err != nil {
+		return "", err
 	}
-	switch strings.ToLower(args[0]) {
-	case "auto":
-		if _, err := c.sessions.SetAssignmentMode(ctx, sess.ID, session.AssignmentAutomatic); err != nil {
-			return "", err
-		}
-		return "🤖 Automatic mode: the bot fills free courts by rating and waiting time.", nil
-	case "manual":
-		if _, err := c.sessions.SetAssignmentMode(ctx, sess.ID, session.AssignmentManual); err != nil {
-			return "", err
-		}
-		return "✋ Manual mode: courts are only filled by `assign` (or `next`). Use `suggest` for a balanced split.", nil
+	if _, err := c.sessions.SetAutoFillEnabled(ctx, sess.ID, true); err != nil {
+		return "", err
 	}
-	return "Usage: `mode auto` or `mode manual`.", nil
+	return "🤖 Auto: the bot fills free courts by rating and waiting time.", nil
+}
+
+// manual stops the bot filling courts; the host uses `assign` or `next`.
+func (c *GroupCommands) manual(ctx context.Context, sess session.Session) (string, error) {
+	if _, err := c.sessions.SetAssignmentMode(ctx, sess.ID, session.AssignmentManual); err != nil {
+		return "", err
+	}
+	return "✋ Manual: courts are only filled by `assign` (or `next`). Use `suggest` for balanced teams.", nil
 }
 
 func (c *GroupCommands) next(ctx context.Context, sess session.Session) (string, error) {
@@ -594,7 +638,7 @@ func (c *GroupCommands) suggest(ctx context.Context, clubID uuid.UUID, sess sess
 	}
 	ps, unknown := c.resolvePlayers(ctx, clubID, names)
 	if len(unknown) > 0 {
-		return fmt.Sprintf("⚠️ Not in the roster: %s.", strings.Join(unknown, ", ")), nil
+		return fmt.Sprintf("⚠️ Not members: %s.", strings.Join(unknown, ", ")), nil
 	}
 	ids := [4]uuid.UUID{ps[0].ID, ps[1].ID, ps[2].ID, ps[3].ID}
 	prop, err := c.matches.RecommendManual(ctx, match.RecommendInput{SessionID: sess.ID, PlayerIDs: ids, Format: inferFormat(ps)})
@@ -627,7 +671,7 @@ func (c *GroupCommands) assign(ctx context.Context, clubID uuid.UUID, sess sessi
 	}
 	ps, unknown := c.resolvePlayers(ctx, clubID, []string{teamA[0], teamA[1], teamB[0], teamB[1]})
 	if len(unknown) > 0 {
-		return fmt.Sprintf("⚠️ Not in the roster: %s.", strings.Join(unknown, ", ")), nil
+		return fmt.Sprintf("⚠️ Not members: %s.", strings.Join(unknown, ", ")), nil
 	}
 	_, err = c.matches.ConfirmManual(ctx, match.ConfirmManualInput{
 		SessionID: sess.ID, CourtID: court.ID, Format: inferFormat(ps),
@@ -736,8 +780,10 @@ func (c *GroupCommands) currentSession(ctx context.Context, clubID uuid.UUID) (s
 	return session.Session{}, session.ErrNotFound
 }
 
+// status shows the whole session: courts with their lineups, who is
+// waiting, and the latest results.
 func (c *GroupCommands) status(ctx context.Context, sess session.Session) (string, error) {
-	players, err := c.sessions.ListPlayers(ctx, sess.ID)
+	sps, err := c.sessions.ListPlayers(ctx, sess.ID)
 	if err != nil {
 		return "", err
 	}
@@ -745,71 +791,112 @@ func (c *GroupCommands) status(ctx context.Context, sess session.Session) (strin
 	if err != nil {
 		return "", err
 	}
-	waiting, playing, inSession := 0, 0, 0
-	for _, p := range players {
-		switch p.Status {
-		case session.PlayerWaiting:
-			waiting++
-		case session.PlayerPlaying:
-			playing++
-		}
-		if p.Status != session.PlayerEnded {
-			inSession++
-		}
+	matches, err := c.matches.ListBySession(ctx, sess.ID)
+	if err != nil {
+		return "", err
 	}
+
 	mode := "auto"
 	if sess.AssignmentMode == session.AssignmentManual {
 		mode = "manual"
 	} else if !sess.AutoFillEnabled {
 		mode = "auto (paused)"
 	}
-	return fmt.Sprintf("🏸 *Session Status*\n\nStatus: %s\nMode: %s\nCourts: %d\nPlayers: %d\nPlaying: %d\nWaiting: %d", sess.Status, mode, len(courts), inSession, playing, waiting), nil
-}
+	var b strings.Builder
+	fmt.Fprintf(&b, "🏸 *Session* — %s · %s\n", strings.ToLower(string(sess.Status)), mode)
 
-func (c *GroupCommands) playersList(ctx context.Context, sess session.Session) (string, error) {
-	roster, err := c.sessions.ListPlayers(ctx, sess.ID)
-	if err != nil {
-		return "", err
+	b.WriteString("\n*Courts*\n")
+	if len(courts) == 0 {
+		b.WriteString("None yet. Use `courts <n>`.\n")
 	}
-	if len(roster) == 0 {
-		return "ℹ️ No players yet.", nil
-	}
-	lines := []string{"👥 *Players*"}
-	for _, sp := range roster {
-		name := "Unknown player"
-		if sp.PlayerID != nil {
-			if p, err := c.players.GetByID(ctx, *sp.PlayerID); err == nil {
-				name = p.DisplayName
+	lineups := make(map[uuid.UUID]string)
+	finished := 0
+	var results []string
+	for _, m := range matches {
+		switch m.Status {
+		case match.StatusCreated, match.StatusPlaying:
+			if _, ok := lineups[m.CourtID]; !ok {
+				lineups[m.CourtID] = c.lineup(ctx, m.ID)
+			}
+		case match.StatusFinished:
+			finished++
+			if len(results) < 3 && m.ScoreA != nil && m.ScoreB != nil {
+				if line := c.resultLine(ctx, m.ID, *m.ScoreA, *m.ScoreB); line != "" {
+					results = append(results, line)
+				}
 			}
 		}
-		lines = append(lines, fmt.Sprintf("• %s — %s", name, sp.Status))
 	}
-	return strings.Join(lines, "\n"), nil
+	for _, ct := range courts {
+		if l, ok := lineups[ct.ID]; ok {
+			fmt.Fprintf(&b, "%s: %s\n", ct.Name, l)
+		} else {
+			fmt.Fprintf(&b, "%s: free\n", ct.Name)
+		}
+	}
+
+	var waiting []string
+	for _, sp := range sps {
+		if sp.Status != session.PlayerWaiting || sp.PlayerID == nil {
+			continue
+		}
+		if p, err := c.players.GetByID(ctx, *sp.PlayerID); err == nil {
+			waiting = append(waiting, p.DisplayName)
+		}
+	}
+	fmt.Fprintf(&b, "\n*Waiting (%d)*\n", len(waiting))
+	if len(waiting) == 0 {
+		b.WriteString("Nobody\n")
+	} else {
+		b.WriteString(strings.Join(waiting, ", ") + "\n")
+	}
+
+	fmt.Fprintf(&b, "\n*Finished (%d)*", finished)
+	for _, r := range results {
+		b.WriteString("\n• " + r)
+	}
+	return b.String(), nil
 }
 
-func (c *GroupCommands) matchesList(ctx context.Context, sess session.Session) (string, error) {
-	matches, err := c.matches.ListBySession(ctx, sess.ID)
+// lineup renders "Alice / Bob vs Cara / Dan" for a match.
+func (c *GroupCommands) lineup(ctx context.Context, matchID uuid.UUID) string {
+	mps, err := c.matches.ListPlayers(ctx, matchID)
 	if err != nil {
-		return "", err
+		return "in use"
 	}
-	if len(matches) == 0 {
-		return "ℹ️ No matches yet.", nil
+	var teamA, teamB []string
+	for _, mp := range mps {
+		if mp.PlayerID == nil {
+			continue
+		}
+		p, err := c.players.GetByID(ctx, *mp.PlayerID)
+		if err != nil {
+			continue
+		}
+		if mp.Team == match.TeamA {
+			teamA = append(teamA, p.DisplayName)
+		} else {
+			teamB = append(teamB, p.DisplayName)
+		}
 	}
+	return strings.Join(teamA, " / ") + " vs " + strings.Join(teamB, " / ")
+}
+
+func (c *GroupCommands) courtList(ctx context.Context, sess session.Session) (string, error) {
 	courts, err := c.sessions.ListCourts(ctx, sess.ID)
 	if err != nil {
 		return "", err
 	}
-	courtNames := make(map[uuid.UUID]string, len(courts))
-	for _, ct := range courts {
-		courtNames[ct.ID] = ct.Name
+	if len(courts) == 0 {
+		return "ℹ️ No courts yet. Use `courts <n>`.", nil
 	}
-	lines := []string{"🏸 *Matches*"}
-	for _, m := range matches {
-		line := fmt.Sprintf("• %s — %s", courtNames[m.CourtID], m.Status)
-		if m.ScoreA != nil && m.ScoreB != nil {
-			line += fmt.Sprintf(" (%d–%d)", *m.ScoreA, *m.ScoreB)
+	lines := []string{fmt.Sprintf("🏟️ *Courts* (%d)", len(courts))}
+	for _, ct := range courts {
+		state := "free"
+		if ct.Status != session.CourtAvailable {
+			state = "in use"
 		}
-		lines = append(lines, line)
+		lines = append(lines, fmt.Sprintf("• %s — %s", ct.Name, state))
 	}
 	return strings.Join(lines, "\n"), nil
 }
@@ -968,11 +1055,48 @@ func userMessage(err error) string {
 }
 
 func helpText() string {
-	return "🏸 *Deuce Bot*\n\n" +
-		"*Session:* `start`, `stop`, `status`, `players`, `matches`\n" +
-		"*Courts:* `courts <n>`, `next`, `done <court> <a>-<b>`, `cancel`\n" +
-		"*Players:* `checkin <names>`, `add <name> [M/F] [A-E]`, `remove <name>`\n" +
-		"*Manual:* `mode auto|manual`, `suggest <4 names>`, `assign <court> A B vs C D`, `pause`, `resume`\n" +
-		"*Roster:* `roster` (one member per line), `members`, `grade <name> <A-E>`\n" +
-		"*Setup (bot phone):* `setup admin <club>`, `setup announce`, `setup status`"
+	return strings.Join([]string{
+		"🏸 *Deuce Bot*",
+		"",
+		"*📅 SESSION*",
+		"`start` → start tonight's session",
+		"`stop` → end session + recap",
+		"`status` → courts, players, scores",
+		"",
+		"*🙋 PLAYERS*",
+		"`in <names>` → check players in",
+		"`out <name>` → take a player out",
+		"",
+		"*🏟️ COURTS*",
+		"`courts <n>` → set number of courts",
+		"`next` → fill the next free court",
+		"`done <court> <score>` → record result",
+		"`cancel` → undo the latest match",
+		"",
+		"*🎯 HOST*",
+		"`auto` → bot fills courts",
+		"`manual` → you pick lineups",
+		"`suggest <4 names>` → balanced teams",
+		"`assign <court> A B vs C D` → set lineup",
+		"",
+		"*👥 MEMBER*",
+		"`member` → list all members",
+		"`member <name>` → one member's info",
+		"`grade <name> <A-E>` → change grade",
+		"",
+		"━━━━━━━━━━━━━━",
+		"",
+		"*💡 Examples*",
+		"`in Andi, Budi, Mary Jane`",
+		"`in Eko M C` _(new player: gender, grade)_",
+		"`done 1 21-15` _(Team A first)_",
+		"`assign 2 Citra Eko vs Andi Budi`",
+		"",
+		"*✏️ Add members in bulk*",
+		"`member` + one per line:",
+		"Andi M B",
+		"Citra F A",
+		"",
+		"_Setup (bot phone only):_ `setup admin <club>`, `setup announce`, `setup status`",
+	}, "\n")
 }

@@ -13,21 +13,38 @@ type Command struct {
 	// Rest is the raw text after the command word, newlines preserved, for
 	// commands that take names or one entry per line.
 	Rest string
+	// Single marks an `in` whose whole text is one "Name [M/F] [A-E]" entry
+	// (the legacy `add` command), so "Mary Jane F" is one player.
+	Single bool
 }
 
 // noArgCommands are only recognized when the message is exactly the command
 // word, so conversation such as "next week?" or "stop it lol" never acts.
 var noArgCommands = map[string]bool{
-	"help": true, "status": true, "players": true, "matches": true,
-	"members": true, "start": true, "stop": true, "pause": true,
-	"resume": true, "next": true, "cancel": true,
+	"help": true, "status": true, "start": true, "stop": true,
+	"next": true, "cancel": true, "auto": true, "manual": true,
 }
 
 // argCommands take arguments; malformed arguments get a usage reply.
 var argCommands = map[string]bool{
-	"add": true, "remove": true, "checkin": true, "roster": true,
-	"grade": true, "mode": true, "suggest": true, "assign": true,
+	"member": true, "grade": true, "suggest": true, "assign": true,
 	"setup": true,
+}
+
+// needArgCommands only act when they have arguments: a bare "in" or "out"
+// is conversation ("I'm in"), not a command.
+var needArgCommands = map[string]bool{"in": true, "out": true}
+
+// noArgAliases are the old command names that took no arguments. They keep
+// working but are not shown in `help`.
+var noArgAliases = map[string]string{
+	"players": "status", "matches": "status", "members": "member",
+	"pause": "manual", "resume": "auto",
+}
+
+// argAliases are the old command names that took arguments.
+var argAliases = map[string]string{
+	"checkin": "in", "add": "in", "remove": "out", "roster": "member",
 }
 
 // ParseCommand recognizes a bot command in a chat message. ok is false for
@@ -42,15 +59,39 @@ func ParseCommand(text string) (cmd Command, ok bool) {
 	args := fields[1:]
 	rest := strings.TrimSpace(text[len(fields[0]):])
 
+	if alias, found := noArgAliases[name]; found {
+		return Command{Name: alias}, len(args) == 0
+	}
+	if alias, found := argAliases[name]; found {
+		cmd := Command{Name: alias, Args: args, Rest: rest, Single: name == "add"}
+		if alias == "in" || alias == "out" {
+			return cmd, len(args) > 0
+		}
+		return cmd, true
+	}
 	if noArgCommands[name] {
 		return Command{Name: name}, len(args) == 0
 	}
 	if argCommands[name] {
 		return Command{Name: name, Args: args, Rest: rest}, true
 	}
+	if needArgCommands[name] {
+		return Command{Name: name, Args: args, Rest: rest}, len(args) > 0
+	}
 	switch name {
+	case "mode":
+		// Legacy `mode auto` / `mode manual`.
+		if len(args) == 1 {
+			if m := strings.ToLower(args[0]); m == "auto" || m == "manual" {
+				return Command{Name: m}, true
+			}
+		}
+		return Command{}, false
 	case "courts":
-		// "courts are full" is conversation, "courts 3" is a command.
+		// "courts" lists, "courts 3" sets; "courts are full" is conversation.
+		if len(args) == 0 {
+			return Command{Name: name}, true
+		}
 		if len(args) != 1 || !isInt(args[0]) {
 			return Command{}, false
 		}
@@ -169,6 +210,37 @@ func parseMemberLine(s string) memberLine {
 	}
 	ml.Name = strings.Join(words, " ")
 	return ml
+}
+
+// parseInEntries splits the text of `in` into "Name [M/F] [A-E]" entries.
+// Commas or new lines separate entries ("Mary Jane F C, Bob"). Without
+// them every word starts a new name, and single-letter gender or grade
+// words belong to the name before them ("Andi Eko M C" → Andi; Eko M C).
+func parseInEntries(s string) []memberLine {
+	var raw []string
+	if strings.ContainsAny(s, ",\n") {
+		raw = splitNames(s)
+	} else {
+		for _, w := range strings.Fields(s) {
+			if len(raw) > 0 && isGenderOrGrade(w) {
+				raw[len(raw)-1] += " " + w
+				continue
+			}
+			raw = append(raw, w)
+		}
+	}
+	out := make([]memberLine, 0, len(raw))
+	for _, r := range raw {
+		if ml := parseMemberLine(r); ml.Name != "" {
+			out = append(out, ml)
+		}
+	}
+	return out
+}
+
+func isGenderOrGrade(w string) bool {
+	u := strings.ToUpper(w)
+	return len(u) == 1 && (u == "M" || u == "F" || (u >= "A" && u <= "E"))
 }
 
 func isInt(s string) bool {

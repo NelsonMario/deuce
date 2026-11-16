@@ -25,7 +25,7 @@ groups**:
 ```text
 "Deuce Admin"  (you + co-hosts + bot)           "Deuce Badminton"  (players + bot)
 ──────────────────────────────────────          ──────────────────────────────────
-You:  checkin Alice Bob Cara Dan                🏸 Session started!
+You:  in Alice Bob Cara Dan                     🏸 Session started!
 Bot:  ✅ Checked in (4): Alice, Bob, …          🏸 Court 1: Alice / Bob vs Cara / Dan
 You:  done 1 21-15                              ✅ Court 1 result
 Bot:  ✅ Court 1 finished 21–15.                   Alice / Bob beat Cara / Dan 21–15
@@ -84,11 +84,11 @@ Bot:  ✅ Court 1 finished 21–15.                   Alice / Bob beat Cara / Da
 5. **Optional: lock the players' group.** In the group settings, set "Send
    messages" to *Only admins* and make the bot a group admin, so the group
    stays purely announcements. The bot must be a group admin to post there.
-6. **Import your roster** (from your own phone, in the admin group). One
+6. **Add your members** (from your own phone, in the admin group). One
    member per line: name, gender (M/F) and grade (A strongest … E):
 
    ```text
-   roster
+   member
    Alice F A
    Bob M B
    Cara F B
@@ -105,22 +105,23 @@ the whole message (`next`, not "next please").
 
 1. `start`: starts a session. Players see "Session started".
 2. `courts 2`: number of courts (courts can only be added).
-3. `checkin Alice Bob Cara Dan Eve`: checks roster members in (use commas
-   for names with spaces: `checkin Mary Jane, Bob`). For someone new, use
-   `add Zed M C` (name, gender, grade); they join the roster too.
+3. `in Alice Bob Cara Dan Eve`: checks members in (use commas for names
+   with spaces: `in Mary Jane, Bob`). For someone new, add their gender and
+   grade: `in Zed M C`; they become a member too. A name without gender or
+   grade that isn't a member is reported, never created, so typos are safe.
 4. Matches are assigned **automatically** to free courts, balancing ratings
    and waiting time. Each lineup is posted to the players' group.
 5. When a game ends: `done 1 21-15` (court, then Team A's score first, as in
    the lineup). Ratings update, the result is posted, and the court gets the
    next match.
-6. Someone leaves: `remove Bob`. They can come back with `checkin Bob`.
+6. Someone leaves: `out Bob`. They can come back with `in Bob`.
 7. `stop`: ends the session. Players see "Session finished"; you get the
    recap.
 
 **Picking matches yourself:**
 
-- `mode manual`: the bot stops filling courts on its own (`mode auto` turns
-  it back on). `pause` / `resume` do the same for a short break.
+- `manual`: the bot stops filling courts on its own (`auto` turns it back
+  on).
 - `suggest Alice Bob Cara Dan`: shows the most balanced split of four
   waiting players.
 - `assign 1 Alice Bob vs Cara Dan`: puts exactly this lineup on Court 1. The
@@ -135,30 +136,31 @@ the whole message (`next`, not "next please").
 | Area | Command | What it does |
 |---|---|---|
 | Session | `start` / `stop` | Start the session / end it and get the recap |
-| | `status`, `players`, `matches` | Session overview, player list, matches and scores |
-| Courts | `courts <n>` | Set the number of courts |
+| | `status` | Courts with lineups, who's waiting, latest results |
+| Players | `in <names>` | Check members in; `in Eko M C` also adds a new member |
+| | `out <name>` | Take a player out of the rotation |
+| Courts | `courts <n>` | Set the number of courts (`courts` alone lists them) |
+| | `next` | Fill the next free court automatically |
 | | `done <court> <a>-<b>` | Record a result and free the court |
-| | `next` | Assign one match automatically |
 | | `cancel` | Cancel the latest unfinished match |
-| Players | `checkin <names>` | Check roster members in |
-| | `add <name> [M/F] [A-E]` | Add one player (new players join the roster) |
-| | `remove <name>` | Take a player out of the rotation |
-| Manual | `mode auto` / `mode manual` | Bot fills courts / you assign them |
+| Host | `auto` / `manual` | Bot fills courts / you pick lineups |
 | | `suggest <4 names>` | Most balanced split |
 | | `assign <court> A B vs C D` | Put an exact lineup on a court |
-| | `pause` / `resume` | Pause / resume automatic filling |
-| Roster | `roster` + one member per line | Add or update members in bulk |
-| | `members` | Roster with grades and current ratings |
-| | `grade <name> <A-E>` | Change a grade and reset the rating to it |
+| Member | `member` | List members (`member <name>` shows one) |
+| | `member` + one member per line | Add or update members in bulk |
+| | `grade <name> <A-E>` | Change a grade and reset the rating to it (`grade <name>` shows it) |
 | Setup | `setup admin <club>`, `setup announce`, `setup status` | Bot phone only |
 | | `help` | Command list |
+
+Old command names (`checkin`, `add`, `remove`, `players`, `matches`, `mode`,
+`pause`, `resume`, `roster`, `members`) still work but are not listed in `help`.
 
 ### Grades and the session recap
 
 Grades set a new member's **starting rating**: A=1400, B=1200, C=1000,
 D=800, E=600. After that, the rating goes up and down with results.
 
-- Re-importing someone with `roster` updates their grade but **keeps their
+- Re-adding someone with `member` updates their grade but **keeps their
   earned rating**.
 - `grade Bob A` changes Bob's grade **and resets his rating** to 1400.
 

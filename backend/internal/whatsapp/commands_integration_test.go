@@ -145,55 +145,76 @@ func TestIntegration_RosterAndGrades(t *testing.T) {
 	f := newBotFixture(t)
 	f.setUp(t)
 
-	reply := f.admin(t, "roster\nAlice F A\nBob M B\nMary Jane F C\nDan M E")
-	expect(t, "roster", reply, "4 added, 0 updated")
+	reply := f.admin(t, "member\nAlice F A\nBob M B\nMary Jane F C\nDan M E")
+	expect(t, "member bulk", reply, "4 added, 0 updated")
 
-	members := f.admin(t, "members")
+	members := f.admin(t, "member")
 	for _, want := range []string{"Alice (F) — A · 1400", "Bob (M) — B · 1200", "Mary Jane (F) — C · 1000", "Dan (M) — E · 600"} {
 		expect(t, "members", members, want)
 	}
 
 	// Re-import keeps earned ratings but updates the grade.
-	expect(t, "re-import", f.admin(t, "roster\nBob M A"), "0 added, 1 updated")
-	expect(t, "after re-import", f.admin(t, "members"), "Bob (M) — A · 1200")
+	expect(t, "re-import", f.admin(t, "member Bob M A"), "0 added, 1 updated")
+	expect(t, "member info", f.admin(t, "member bob"), "Bob (M) — A · 1200")
+	expect(t, "member unknown", f.admin(t, "member Nobody"), "not a member")
+	expect(t, "grade show", f.admin(t, "grade Mary Jane"), "Mary Jane (F) — C · 1000")
+
+	// Old names still work.
+	expect(t, "legacy roster", f.admin(t, "roster\nEve F D"), "1 added")
+	expect(t, "legacy members", f.admin(t, "members"), "Eve (F) — D · 800")
 
 	// grade resets the rating explicitly.
 	expect(t, "grade", f.admin(t, "grade bob A"), "rating reset to 1400")
-	expect(t, "grade unknown", f.admin(t, "grade Nobody B"), "not in the roster")
+	expect(t, "grade unknown", f.admin(t, "grade Nobody B"), "not a member")
 	expect(t, "grade bad", f.admin(t, "grade Bob Z"), "A, B, C, D or E")
 }
 
 func TestIntegration_FullSession(t *testing.T) {
 	f := newBotFixture(t)
 	f.setUp(t)
-	f.admin(t, "roster\nAlice F A\nBob M B\nCara F B\nDan M C\nEve F D\nFrank M C")
+	f.admin(t, "member\nAlice F A\nBob M B\nCara F B\nDan M C\nEve F D\nFrank M C")
 
 	expect(t, "start", f.admin(t, "start"), "created and started")
 	expect(t, "start announce", f.announcer.last(), "Session started")
 	expect(t, "courts", f.admin(t, "courts 2"), "2 court(s)")
-	expect(t, "pause", f.admin(t, "pause"), "paused")
+	expect(t, "courts list", f.admin(t, "courts"), "Court 2 — free")
+	expect(t, "manual", f.admin(t, "manual"), "Manual")
 
-	reply := f.admin(t, "checkin Alice Bob Cara Dan Zed")
-	expect(t, "checkin", reply, "Checked in (4)")
-	expect(t, "checkin unknown", reply, "Not in the roster: Zed")
-	expect(t, "add guest", f.admin(t, "add Zed M D"), "New member, grade D")
-	expect(t, "guest rating", f.admin(t, "members"), "Zed (M) — D · 800")
+	reply := f.admin(t, "in Alice Bob Cara Dan Zed")
+	expect(t, "in", reply, "Checked in (4)")
+	expect(t, "in unknown", reply, "Not members: Zed")
+	reply = f.admin(t, "in Zed M D, Yan F C")
+	expect(t, "in new", reply, "Checked in (2): Zed, Yan")
+	expect(t, "in new members", reply, "New members: Zed (D), Yan (C)")
+	expect(t, "new member rating", f.admin(t, "member Zed"), "Zed (M) — D · 800")
+	expect(t, "out", f.admin(t, "out Yan"), "out of the rotation")
+	expect(t, "legacy add", f.admin(t, "add Yan"), "Checked in (1): Yan")
+	expect(t, "legacy remove", f.admin(t, "remove Yan"), "out of the rotation")
 
 	// Manual assignment.
-	expect(t, "mode", f.admin(t, "mode manual"), "Manual mode")
 	expect(t, "suggest", f.admin(t, "suggest Alice Bob Cara Dan"), "Most balanced")
 	expect(t, "assign bad court", f.admin(t, "assign 9 Alice Bob vs Cara Dan"), "no Court 9")
-	expect(t, "assign unknown", f.admin(t, "assign 1 Alice Bob vs Cara Nobody"), "Not in the roster: Nobody")
+	expect(t, "assign unknown", f.admin(t, "assign 1 Alice Bob vs Cara Nobody"), "Not members: Nobody")
 	expect(t, "assign", f.admin(t, "assign 1 Alice Bob vs Cara Dan"), "Court 1: Alice / Bob vs Cara / Dan")
 	expect(t, "assign busy player", f.admin(t, "assign 2 Alice Zed vs Cara Dan"), "Could not assign")
 
 	// Finishing posts the result to the announcement group.
 	expect(t, "done", f.admin(t, "done 1 15-21"), "Court 1 finished 15–21")
 	expect(t, "result announce", f.announcer.last(), "Cara / Dan beat Alice / Bob 21–15")
-	expect(t, "matches", f.admin(t, "matches"), "Court 1 — FINISHED (15–21)")
+	expect(t, "in on court", f.admin(t, "assign 1 Alice Bob vs Cara Dan"), "Court 1")
+	expect(t, "already on court", f.admin(t, "in Alice"), "Already on court: Alice")
+	expect(t, "cancel", f.admin(t, "cancel"), "cancelled")
 	expect(t, "next", f.admin(t, "next"), "assigned")
 
-	expect(t, "status", f.admin(t, "status"), "Mode: manual")
+	status := f.admin(t, "status")
+	t.Logf("status:\n%s", status)
+	for _, want := range []string{"active · manual", "Court 1: ", " vs ", "Court 2: free", "*Waiting (", "*Finished (1)*", "Cara / Dan beat Alice / Bob 21–15"} {
+		expect(t, "status", status, want)
+	}
+	expect(t, "legacy matches", f.admin(t, "matches"), "*Finished (1)*")
+	expect(t, "auto", f.admin(t, "auto"), "Auto")
+	expect(t, "status auto", f.admin(t, "status"), "active · auto")
+	expect(t, "manual again", f.admin(t, "mode manual"), "Manual")
 
 	// Stop: recap to admins, short notice to players.
 	recap := f.admin(t, "stop")

@@ -17,7 +17,7 @@ automatic, and hosts can still pick matches by hand.
 - **Matchmaking:** automatic (ratings + waiting time) or manual
   (`suggest` a balanced split, `assign` an exact lineup), switchable at any
   time.
-- **Roster and grades:** import the club roster in one message with A–E
+- **Members and grades:** add the club's members in one message with A–E
   grades that set starting ratings; check members in to a session by name.
 - **Ratings and recap:** an Elo-style rating updates after every match, and
   `stop` sends hosts a recap of games, wins/losses, rating changes and
@@ -137,10 +137,10 @@ settings**:
 Only the bot phone can run `setup`, so a co-host cannot move the bot to
 another group.
 
-### 5. Import the roster (in the admin group, from your phone)
+### 5. Add your members (in the admin group, from your phone)
 
 ```text
-roster
+member
 Alice F A
 Bob M B
 Cara F B
@@ -148,11 +148,11 @@ Dan M C
 ```
 
 One member per line: name, gender (M/F), grade (A strongest … E). Check with
-`members`.
+`member`.
 
 ### 6. Test it
 
-In the admin group: `start`, `courts 2`, `checkin Alice Bob Cara Dan`. The
+In the admin group: `start`, `courts 2`, `in Alice Bob Cara Dan`. The
 lineup appears in the players' group. Finish with `done 1 21-15`, then
 `stop` for the recap. Send `help` for all commands; the full command guide
 is in [frontend/README.md](frontend/README.md#how-to-use-deuce).

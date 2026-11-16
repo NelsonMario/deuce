@@ -37,7 +37,7 @@ TOKEN='<host token>'`;
   | python3 -c 'import json,sys; print(json.load(sys.stdin).get("qr",""))')
 npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png`;
 
-	const rosterSnippet = `roster
+	const rosterSnippet = `member
 Alice F A
 Bob M B
 Cara F B
@@ -45,7 +45,7 @@ Mary Jane F C`;
 
 	const sessionSnippet = `start
 courts 2
-checkin Alice Bob Cara Dan Eve
+in Alice Bob Cara Dan Eve
 done 1 21-15
 stop`;
 
@@ -71,22 +71,18 @@ CASCADE;`;
 	const commands: { area: string; cmd: string; desc: string }[] = [
 		{ area: "Session", cmd: "start", desc: "Start a session" },
 		{ area: "", cmd: "stop", desc: "End the session and post the recap" },
-		{ area: "", cmd: "status", desc: "Session overview" },
-		{ area: "", cmd: "players", desc: "Players in the session and their status" },
-		{ area: "", cmd: "matches", desc: "Matches with courts and scores" },
-		{ area: "Courts", cmd: "courts <n>", desc: "Set the number of courts (can only grow)" },
+		{ area: "", cmd: "status", desc: "Courts with lineups, who's waiting, latest results" },
+		{ area: "Players", cmd: "in <names>", desc: "Check members in; \"in Eko M C\" also adds a new member" },
+		{ area: "", cmd: "out <name>", desc: "Take a player out of the rotation" },
+		{ area: "Courts", cmd: "courts <n>", desc: "Set the number of courts (\"courts\" alone lists them)" },
+		{ area: "", cmd: "next", desc: "Fill the next free court automatically" },
 		{ area: "", cmd: "done <court> <a>-<b>", desc: "Record a result (Team A first) and free the court" },
-		{ area: "", cmd: "next", desc: "Assign one match automatically to the first free court" },
 		{ area: "", cmd: "cancel", desc: "Cancel the latest unfinished match" },
-		{ area: "Players", cmd: "checkin <names>", desc: "Check roster members in (commas for names with spaces)" },
-		{ area: "", cmd: "add <name> [M/F] [A-E]", desc: "Add one player; new players join the roster" },
-		{ area: "", cmd: "remove <name>", desc: "Take a player out of the rotation" },
-		{ area: "Manual", cmd: "mode auto | mode manual", desc: "Bot fills courts / you assign them" },
+		{ area: "Host", cmd: "auto | manual", desc: "Bot fills courts / you pick lineups" },
 		{ area: "", cmd: "suggest <4 names>", desc: "Show the most balanced split" },
 		{ area: "", cmd: "assign <court> A B vs C D", desc: "Put an exact lineup on a court" },
-		{ area: "", cmd: "pause | resume", desc: "Pause / resume automatic filling" },
-		{ area: "Roster", cmd: "roster", desc: "Bulk add/update, one \"Name M/F Grade\" per line" },
-		{ area: "", cmd: "members", desc: "Roster with grades and current ratings" },
+		{ area: "Member", cmd: "member [name]", desc: "List members, or show one" },
+		{ area: "", cmd: "member + lines", desc: "Bulk add/update, one \"Name M/F Grade\" per line" },
 		{ area: "", cmd: "grade <name> <A-E>", desc: "Change a grade and reset the rating to it" },
 		{ area: "Setup", cmd: "setup admin <club>", desc: "Bot phone only: make this group the admin group" },
 		{ area: "", cmd: "setup announce", desc: "Bot phone only: make this group the players' group" },
@@ -236,10 +232,10 @@ CASCADE;`;
 			Only the bot phone can run <code>setup</code>, so nobody else can redirect the bot.
 		</p>
 
-		<h3>5. Import the roster</h3>
+		<h3>5. Add your members</h3>
 		<p>In the admin group, one member per line: name, gender (M/F), grade (A strongest to E).</p>
 		<pre><code>{rosterSnippet}</code></pre>
-		<p>Check the result with <code>members</code>.</p>
+		<p>Check the result with <code>member</code>.</p>
 	</section>
 
 	<section id="admins">
@@ -274,8 +270,8 @@ CASCADE;`;
 			<li><code>start</code> starts the session; the players' group is notified.</li>
 			<li><code>courts 2</code> sets the number of courts.</li>
 			<li>
-				<code>checkin …</code> adds roster members. For someone new, use
-				<code>add Zed M C</code>.
+				<code>in …</code> checks members in. For someone new, add gender and grade:
+				<code>in Zed M C</code>.
 			</li>
 			<li>
 				Free courts are filled automatically by rating and waiting time; each lineup is posted to
@@ -288,9 +284,9 @@ CASCADE;`;
 			<li><code>stop</code> ends the session and posts the recap in the admin group.</li>
 		</ol>
 		<p>
-			To pick matches yourself: <code>mode manual</code>, then <code>suggest Alice Bob Cara Dan</code>
+			To pick matches yourself: <code>manual</code>, then <code>suggest Alice Bob Cara Dan</code>
 			for a balanced split and <code>assign 1 Alice Bob vs Cara Dan</code> to place it.
-			<code>mode auto</code> switches back.
+			<code>auto</code> switches back.
 		</p>
 	</section>
 
@@ -310,7 +306,7 @@ CASCADE;`;
 				{/each}
 			</tbody>
 		</table>
-		<p>Names with spaces are separated by commas: <code>checkin Mary Jane, Bob</code>.</p>
+		<p>Names with spaces are separated by commas: <code>in Mary Jane, Bob</code>.</p>
 	</section>
 
 	<section id="grades">
