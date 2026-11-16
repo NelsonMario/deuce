@@ -28,7 +28,7 @@ var noArgCommands = map[string]bool{
 // argCommands take arguments; malformed arguments get a usage reply.
 var argCommands = map[string]bool{
 	"member": true, "grade": true, "suggest": true, "assign": true,
-	"setup": true,
+	"setup": true, "chat": true,
 }
 
 // needArgCommands only act when they have arguments: a bare "in" or "out"
@@ -47,10 +47,62 @@ var argAliases = map[string]string{
 	"checkin": "in", "add": "in", "remove": "out", "roster": "member",
 }
 
+// matchPrefix checks if text starts with prefix (case-insensitively).
+// For word-based prefixes (e.g. "chat", "ai"), it requires a word boundary
+// (whitespace, colon, or comma) so "airport" does not match "ai".
+func matchPrefix(text, prefix string) (string, bool) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return "", false
+	}
+	lowerText := strings.ToLower(text)
+	lowerPrefix := strings.ToLower(prefix)
+	if !strings.HasPrefix(lowerText, lowerPrefix) {
+		return "", false
+	}
+	rest := text[len(prefix):]
+	if len(rest) > 0 {
+		runes := []rune(rest)
+		firstRune := runes[0]
+		prefixRunes := []rune(prefix)
+		lastPrefixRune := prefixRunes[len(prefixRunes)-1]
+		if (lastPrefixRune >= 'a' && lastPrefixRune <= 'z') || (lastPrefixRune >= '0' && lastPrefixRune <= '9') {
+			if firstRune != ' ' && firstRune != '\t' && firstRune != '\n' && firstRune != ':' && firstRune != ',' {
+				return "", false
+			}
+		}
+	}
+	cleaned := strings.TrimSpace(rest)
+	if strings.HasPrefix(cleaned, ":") {
+		cleaned = strings.TrimSpace(cleaned[1:])
+	}
+	return cleaned, true
+}
+
 // ParseCommand recognizes a bot command in a chat message. ok is false for
 // ordinary conversation, which the bot ignores silently.
 func ParseCommand(text string) (cmd Command, ok bool) {
+	return ParseCommandWithPrefix(text, "chat")
+}
+
+// ParseCommandWithPrefix recognizes a bot command in a chat message, checking
+// both standard commands and the configured natural language prefix (e.g. "chat", "!").
+func ParseCommandWithPrefix(text, prefix string) (cmd Command, ok bool) {
 	text = strings.TrimSpace(text)
+	if text == "" {
+		return Command{}, false
+	}
+
+	if prefix == "" {
+		prefix = "chat"
+	}
+
+	// First, check natural language prefix (e.g. "chat", "!", "ai").
+	if prompt, matched := matchPrefix(text, prefix); matched {
+		fields := strings.Fields(prompt)
+		return Command{Name: "chat", Args: fields, Rest: prompt}, true
+	}
+
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return Command{}, false

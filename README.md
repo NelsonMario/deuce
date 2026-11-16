@@ -65,6 +65,9 @@ stored in the database. `.env` only holds infrastructure settings:
 | `PLAYER_TOKEN_SECRET` | Secret for hashing API tokens (`openssl rand -hex 32`) |
 | `REDIS_*` | Optional: shared rate limiting and locks. Leave `REDIS_HOST` unset to skip |
 | `WHATSAPP_ENABLED` | Starts the bot (default `true`); `false` runs the API only |
+| `GEMINI_API_KEY` | Optional: Google Gemini API key for natural language commands |
+| `GEMINI_PREFIX` | Prefix trigger for AI commands (default `chat`, or symbols like `!`) |
+| `GEMINI_MAX_RPM` | AI rate limiter (default `10` requests/min, free-tier safe) |
 
 Do not put phone numbers, group IDs or club IDs in `.env`. The old
 `WHATSAPP_CLUB_ID`, `WHATSAPP_GROUP_JID` and `WHATSAPP_ADMIN_JIDS` variables

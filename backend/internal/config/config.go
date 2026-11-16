@@ -41,6 +41,11 @@ type Config struct {
 	WhatsAppGroupJID  string
 	WhatsAppAdminJIDs []string
 	WhatsAppClubID    string
+	// Gemini API configuration for natural language commands.
+	GeminiAPIKey string
+	GeminiModel  string
+	GeminiPrefix string
+	GeminiMaxRPM int
 }
 
 func Load() (*Config, error) {
@@ -73,6 +78,18 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid WHATSAPP_ENABLED: %w", err)
 	}
 	cfg.WhatsAppEnabled = whatsappEnabled
+
+	cfg.GeminiAPIKey = strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+	cfg.GeminiModel = getEnv("GEMINI_MODEL", "gemini-2.5-flash")
+	cfg.GeminiPrefix = strings.TrimSpace(getEnv("GEMINI_PREFIX", "chat"))
+	if cfg.GeminiPrefix == "" {
+		cfg.GeminiPrefix = "chat"
+	}
+	geminiMaxRPM, err := strconv.Atoi(getEnv("GEMINI_MAX_RPM", "10"))
+	if err != nil || geminiMaxRPM <= 0 {
+		geminiMaxRPM = 10
+	}
+	cfg.GeminiMaxRPM = geminiMaxRPM
 
 	redisTLS, err := strconv.ParseBool(getEnv("REDIS_TLS", "false"))
 	if err != nil {

@@ -32,13 +32,14 @@ const maxCommandAge = 2 * time.Minute
 //
 // Private chats are always ignored.
 type Dispatcher struct {
-	client       Client
-	config       ConfigStore
-	handler      CommandHandler
-	legacyAdmins map[string]struct{}
-	logger       *slog.Logger
-	seenMu       sync.Mutex
-	seen         map[string]time.Time
+	client        Client
+	config        ConfigStore
+	handler       CommandHandler
+	legacyAdmins  map[string]struct{}
+	commandPrefix string
+	logger        *slog.Logger
+	seenMu        sync.Mutex
+	seen          map[string]time.Time
 }
 
 func NewDispatcher(client Client, config ConfigStore, legacyAdminJIDs []string, handler CommandHandler, logger *slog.Logger) *Dispatcher {
@@ -48,7 +49,16 @@ func NewDispatcher(client Client, config ConfigStore, legacyAdminJIDs []string, 
 			admins[jid] = struct{}{}
 		}
 	}
-	return &Dispatcher{client: client, config: config, handler: handler, legacyAdmins: admins, logger: logger, seen: make(map[string]time.Time)}
+	return &Dispatcher{client: client, config: config, handler: handler, legacyAdmins: admins, commandPrefix: "chat", logger: logger, seen: make(map[string]time.Time)}
+}
+
+// SetCommandPrefix sets the prefix for natural language AI commands (e.g. "chat", "!").
+func (d *Dispatcher) SetCommandPrefix(prefix string) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "chat"
+	}
+	d.commandPrefix = prefix
 }
 
 func (d *Dispatcher) HandleEvent(evt interface{}) {
@@ -60,7 +70,7 @@ func (d *Dispatcher) HandleEvent(evt interface{}) {
 	if text == "" && m.Message.GetExtendedTextMessage() != nil {
 		text = strings.TrimSpace(m.Message.GetExtendedTextMessage().GetText())
 	}
-	cmd, isCommand := ParseCommand(text)
+	cmd, isCommand := ParseCommandWithPrefix(text, d.commandPrefix)
 	if !isCommand {
 		return
 	}

@@ -39,6 +39,9 @@ func TestParseCommand(t *testing.T) {
 		{"grade Budi B", true, "grade", 2},
 		{"assign 1 Alice Bob vs Cara Dan", true, "assign", 6},
 		{"setup admin Tiger Club", true, "setup", 3},
+		{"chat", true, "chat", 0},
+		{"chat court 1 finished 21-15", true, "chat", 4},
+		{"CHAT: check in Alice Bob", true, "chat", 4},
 		// Old names keep working as hidden aliases.
 		{"add Mary Jane F", true, "in", 3},
 		{"add", false, "", 0},
@@ -63,6 +66,34 @@ func TestParseCommand(t *testing.T) {
 		}
 		if ok && (cmd.Name != tc.name || len(cmd.Args) != tc.nArgs) {
 			t.Errorf("ParseCommand(%q) = %+v, want name %q with %d args", tc.text, cmd, tc.name, tc.nArgs)
+		}
+	}
+}
+
+func TestParseCommandWithPrefix(t *testing.T) {
+	cases := []struct {
+		text   string
+		prefix string
+		ok     bool
+		name   string
+		rest   string
+	}{
+		{"!court 1 finished 21-15", "!", true, "chat", "court 1 finished 21-15"},
+		{"! check in Alice", "!", true, "chat", "check in Alice"},
+		{"!status", "!", true, "chat", "status"},
+		{"airport terminal", "ai", false, "", ""},
+		{"ai court 1 done", "ai", true, "chat", "court 1 done"},
+		{"ai: court 1 done", "ai", true, "chat", "court 1 done"},
+		{"status", "!", true, "status", ""}, // standard commands still work
+	}
+	for _, tc := range cases {
+		cmd, ok := ParseCommandWithPrefix(tc.text, tc.prefix)
+		if ok != tc.ok {
+			t.Errorf("ParseCommandWithPrefix(%q, %q) ok = %v, want %v", tc.text, tc.prefix, ok, tc.ok)
+			continue
+		}
+		if ok && (cmd.Name != tc.name || cmd.Rest != tc.rest) {
+			t.Errorf("ParseCommandWithPrefix(%q, %q) = %+v, want name %q rest %q", tc.text, tc.prefix, cmd, tc.name, tc.rest)
 		}
 	}
 }

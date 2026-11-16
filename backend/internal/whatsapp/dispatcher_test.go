@@ -74,6 +74,7 @@ func TestDispatcherRouting(t *testing.T) {
 		handled bool
 	}{
 		{"admin group command", split, msg(t, tAdmin, member, false, "status"), true},
+		{"admin group chat natural language", split, msg(t, tAdmin, member, false, "chat court 1 finished 21-15"), true},
 		{"admin group chatter", split, msg(t, tAdmin, member, false, "on my way"), false},
 		{"announce group command is ignored", split, msg(t, tAnnounce, tLegacy, false, "next"), false},
 		{"unconfigured group", split, msg(t, tOther, member, false, "status"), false},
@@ -106,5 +107,34 @@ func TestDispatcherRouting(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDispatcherCustomPrefix(t *testing.T) {
+	split := Config{AdminGroup: tAdmin, AnnounceGroup: tAnnounce}
+	member := "628999999999@s.whatsapp.net"
+
+	h := &recordingHandler{got: make(chan Request, 1)}
+	d := NewDispatcher(nopClient{}, &staticConfig{cfg: split}, []string{tLegacy}, h, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	d.SetCommandPrefix("!")
+
+	// Custom prefix message should be handled
+	d.HandleEvent(msg(t, tAdmin, member, false, "!court 1 finished 21-15"))
+	select {
+	case req := <-h.got:
+		if req.Text != "!court 1 finished 21-15" {
+			t.Fatalf("expected raw text preserved in req, got %q", req.Text)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected custom prefix message to be handled")
+	}
+
+	// Message without prefix or command should be ignored
+	d.HandleEvent(msg(t, tAdmin, member, false, "hey everyone"))
+	select {
+	case req := <-h.got:
+		t.Fatalf("expected message to be ignored, got %+v", req)
+	case <-time.After(200 * time.Millisecond):
+		// OK
 	}
 }

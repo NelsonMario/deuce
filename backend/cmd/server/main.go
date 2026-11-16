@@ -18,6 +18,7 @@ import (
 	"deuce/backend/internal/config"
 	"deuce/backend/internal/database"
 	"deuce/backend/internal/device"
+	"deuce/backend/internal/gemini"
 	"deuce/backend/internal/httpapi"
 	"deuce/backend/internal/httpapi/handler"
 	"deuce/backend/internal/httpapi/middleware"
@@ -117,7 +118,15 @@ func main() {
 		repo := whatsapp.NewRepository(pool, configStore)
 		announcer := whatsapp.NewGroupAnnouncer(client, configStore)
 		commands := whatsapp.NewGroupCommands(configStore, clubService, sessionService, matchService, matchReadRepo, playerRepo, announcer)
+		if cfg.GeminiAPIKey != "" {
+			geminiClient := gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.GeminiMaxRPM)
+			commands.SetGemini(geminiClient)
+			logger.Info("gemini_enabled", "model", cfg.GeminiModel, "prefix", cfg.GeminiPrefix, "max_rpm", cfg.GeminiMaxRPM)
+		} else {
+			logger.Info("gemini_disabled", "reason", "GEMINI_API_KEY unset")
+		}
 		dispatcher := whatsapp.NewDispatcher(client, configStore, cfg.WhatsAppAdminJIDs, commands, logger)
+		dispatcher.SetCommandPrefix(cfg.GeminiPrefix)
 		whatsappService = whatsapp.NewService(client, repo, configStore, dispatcher, sessionRepo, matchReadRepo, logger)
 		matchService.SetAnnouncementOutbox(repo)
 		// whatsmeow only auto-reconnects after a connection has been

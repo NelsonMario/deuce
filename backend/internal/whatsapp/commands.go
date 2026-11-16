@@ -14,6 +14,7 @@ import (
 
 	"deuce/backend/internal/apperr"
 	"deuce/backend/internal/club"
+	"deuce/backend/internal/gemini"
 	"deuce/backend/internal/match"
 	"deuce/backend/internal/player"
 	"deuce/backend/internal/session"
@@ -52,10 +53,16 @@ type GroupCommands struct {
 	reads     match.ReadRepository
 	players   player.Repository
 	announcer Announcer
+	gemini    *gemini.Client
 }
 
 func NewGroupCommands(config ConfigStore, clubs *club.Service, sessions *session.Service, matches *match.Service, reads match.ReadRepository, players player.Repository, announcer Announcer) *GroupCommands {
 	return &GroupCommands{config: config, clubs: clubs, sessions: sessions, matches: matches, reads: reads, players: players, announcer: announcer}
+}
+
+// SetGemini configures the optional Gemini AI client for natural language commands.
+func (c *GroupCommands) SetGemini(client *gemini.Client) {
+	c.gemini = client
 }
 
 // Handle runs one command and returns the reply for the chat it came from.
@@ -93,6 +100,9 @@ func (c *GroupCommands) Handle(ctx context.Context, req Request) (string, error)
 		return "⚠️ Could not load the current session.", err
 	}
 	if errors.Is(err, session.ErrNotFound) {
+		if cmd.Name == "chat" {
+			return c.chat(ctx, req, clubID, nil, cmd.Rest)
+		}
 		if cmd.Name != "start" {
 			return "ℹ️ No session is running. Use `start` to create one.", nil
 		}
@@ -110,6 +120,8 @@ func (c *GroupCommands) Handle(ctx context.Context, req Request) (string, error)
 	}
 
 	switch cmd.Name {
+	case "chat":
+		return c.chat(ctx, req, clubID, &sess, cmd.Rest)
 	case "status":
 		return c.status(ctx, sess)
 	case "start":
@@ -1054,9 +1066,118 @@ func userMessage(err error) string {
 	return "unexpected error"
 }
 
+// chat uses Gemini AI to interpret natural language commands from the host.
+func (c *GroupCommands) chat(ctx context.Context, req Request, clubID uuid.UUID, sess *session.Session, prompt string) (string, error) {
+	if prompt == "" {
+		return "🏸 *Deuce AI Chat*\nTell me what to do in natural language, for example:\n• `chat court 1 finished 21-15`\n• `chat check in Alice, Bob, and Dan`\n• `chat start session with 2 courts`\n• `chat who is playing right now?`", nil
+	}
+	if c.gemini == nil || !c.gemini.IsConfigured() {
+		return "⚠️ Gemini API is not configured. Set GEMINI_API_KEY in .env to use natural language commands.", nil
+	}
+
+	in := gemini.InterpretInput{
+		Prompt: prompt,
+	}
+
+	// Fetch registered club members
+	if roster, err := c.clubs.Roster(ctx, clubID); err == nil {
+		for _, r := range roster {
+			in.ClubMembers = append(in.ClubMembers, r.DisplayName)
+		}
+	}
+
+	if sess != nil {
+		in.SessionActive = sess.Status == session.StatusActive
+
+		// List courts
+		courts, err := c.sessions.ListCourts(ctx, sess.ID)
+		if err == nil {
+			matches, _ := c.matches.ListBySession(ctx, sess.ID)
+			for _, ct := range courts {
+				cc := gemini.CourtContext{
+					Name:   ct.Name,
+					Status: "available",
+				}
+				for _, m := range matches {
+					if m.CourtID == ct.ID && (m.Status == match.StatusPlaying || m.Status == match.StatusCreated) {
+						cc.Status = "playing"
+						mps, err := c.matches.ListPlayers(ctx, m.ID)
+						if err == nil {
+							for _, mp := range mps {
+								if mp.PlayerID == nil {
+									continue
+								}
+								p, err := c.players.GetByID(ctx, *mp.PlayerID)
+								if err == nil {
+									if mp.Team == match.TeamA {
+										cc.TeamA = append(cc.TeamA, p.DisplayName)
+									} else {
+										cc.TeamB = append(cc.TeamB, p.DisplayName)
+									}
+								}
+							}
+						}
+						break
+					}
+				}
+				in.Courts = append(in.Courts, cc)
+			}
+		}
+
+		// List waiting players
+		sps, err := c.sessions.ListPlayers(ctx, sess.ID)
+		if err == nil {
+			for _, sp := range sps {
+				if sp.Status == session.PlayerWaiting && sp.PlayerID != nil {
+					p, err := c.players.GetByID(ctx, *sp.PlayerID)
+					if err == nil {
+						in.Waiting = append(in.Waiting, p.DisplayName)
+					}
+				}
+			}
+		}
+	}
+
+	out, err := c.gemini.Interpret(ctx, in)
+	if err != nil {
+		if errors.Is(err, gemini.ErrRateLimitExceeded) {
+			return "⏳ AI rate limit reached (free tier limit). Please wait a moment or use direct commands (e.g. `done 1 21-15`, `in Alice`).", nil
+		}
+		return fmt.Sprintf("⚠️ Could not process AI request: %s", err.Error()), err
+	}
+
+	if len(out.Commands) == 0 {
+		if out.Reply != "" {
+			return out.Reply, nil
+		}
+		return "ℹ️ No action was taken.", nil
+	}
+
+	var results []string
+	for _, cmdStr := range out.Commands {
+		subReq := Request{Chat: req.Chat, FromMe: req.FromMe, Text: cmdStr}
+		reply, err := c.Handle(ctx, subReq)
+		if err != nil {
+			results = append(results, fmt.Sprintf("⚠️ `%s`: %s", cmdStr, err.Error()))
+		} else if reply != "" {
+			results = append(results, reply)
+		}
+	}
+
+	if out.Reply != "" && len(results) > 0 {
+		return fmt.Sprintf("🤖 %s\n\n%s", out.Reply, strings.Join(results, "\n\n")), nil
+	} else if len(results) > 0 {
+		return strings.Join(results, "\n\n"), nil
+	}
+	return out.Reply, nil
+}
+
 func helpText() string {
 	return strings.Join([]string{
 		"🏸 *Deuce Bot*",
+		"",
+		"*🤖 AI (Natural Language)*",
+		"`chat <anything>` → e.g. `chat court 1 finished 21-15`",
 		"",
 		"*📅 SESSION*",
 		"`start` → start tonight's session",

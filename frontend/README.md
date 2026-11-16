@@ -135,6 +135,7 @@ the whole message (`next`, not "next please").
 
 | Area | Command | What it does |
 |---|---|---|
+| AI | `chat <message>` | Run commands or ask questions in natural language (e.g. `chat court 1 finished 21-15`, `chat check in Alice and Bob`) |
 | Session | `start` / `stop` | Start the session / end it and get the recap |
 | | `status` | Courts with lineups, who's waiting, latest results |
 | Players | `in <names>` | Check members in; `in Eko M C` also adds a new member |
