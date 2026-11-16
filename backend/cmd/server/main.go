@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"deuce/backend/internal/auth"
@@ -25,6 +26,7 @@ import (
 	"deuce/backend/internal/player"
 	"deuce/backend/internal/ratelimit"
 	"deuce/backend/internal/session"
+	"deuce/backend/internal/whatsapp"
 )
 
 // matchGenLockTTL bounds the double-tap guard on match generation (see
@@ -94,16 +96,45 @@ func main() {
 	sessionService := session.NewService(sessionRepo, clubRepo, playerRepo, hasher, deviceLinker, logger)
 	matchService := match.NewService(pool, matchReadRepo, matchLocker, logger)
 
-	handlers := handler.New(clubService, playerService, sessionService, matchService, logger)
+	var whatsappService *whatsapp.Service
+	if cfg.WhatsAppGroupJID != "" || cfg.WhatsAppClubID != "" {
+		clubID, parseErr := uuid.Parse(cfg.WhatsAppClubID)
+		if parseErr != nil || cfg.WhatsAppGroupJID == "" || len(cfg.WhatsAppAdminJIDs) == 0 {
+			logger.Warn("whatsapp_disabled", "reason", "WHATSAPP_GROUP_JID, WHATSAPP_CLUB_ID, and WHATSAPP_ADMIN_JIDS are all required")
+		} else if container, deviceStore, storeErr := whatsapp.InitStore(ctx, cfg.DatabaseURL(), logger); storeErr != nil {
+			logger.Warn("whatsapp_store_init_failed", "error", storeErr)
+		} else {
+			defer container.Close()
+			client := whatsapp.NewWhatsmeowClient(deviceStore, logger)
+			repo := whatsapp.NewRepository(pool, cfg.WhatsAppGroupJID)
+			commands := whatsapp.NewGroupCommands(clubID, cfg.WhatsAppAdminJIDs, sessionService, matchService, playerRepo)
+			dispatcher, dispatcherErr := whatsapp.NewDispatcher(client, cfg.WhatsAppGroupJID, commands, logger)
+			if dispatcherErr != nil {
+				logger.Warn("whatsapp_disabled", "error", dispatcherErr)
+			} else {
+				whatsappService = whatsapp.NewService(client, repo, dispatcher, sessionRepo, matchReadRepo, logger)
+				matchService.SetAnnouncementOutbox(repo)
+				go func() {
+					if err := whatsappService.Connect(); err != nil {
+						logger.Warn("whatsapp_connect_failed", "error", err)
+					}
+				}()
+				go whatsappService.Run(ctx)
+				defer whatsappService.Disconnect()
+			}
+		}
+	}
+
+	whatsappHandler := handler.NewWhatsAppHandler(whatsappService)
+	handlers := handler.New(clubService, playerService, sessionService, matchService, whatsappHandler, logger)
 
 	app := httpapi.NewApp(httpapi.Deps{
-		Handlers:      handlers,
-		Hasher:        hasher,
-		Players:       playerRepo,
-		Logger:        logger,
-		CORSOrigins:   cfg.CORSOrigins,
-		RateLimiter:   rateLimiter,
-		CronAPISecret: cfg.CronAPISecret,
+		Handlers:    handlers,
+		Hasher:      hasher,
+		Players:     playerRepo,
+		Logger:      logger,
+		CORSOrigins: cfg.CORSOrigins,
+		RateLimiter: rateLimiter,
 	})
 
 	go func() {

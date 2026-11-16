@@ -171,9 +171,7 @@ func (h *Handlers) SetAutoFillEnabled(c *fiber.Ctx) error {
 
 type SessionPlayerDTO struct {
 	ID string `json:"id"`
-	// PlayerID is omitted once the guest it belonged to has been deleted by
-	// the cleanup job — the roster slot's history (status, match/win/loss
-	// counts) is preserved, only the identity link is gone.
+	// PlayerID is optional for compatibility with historical rows.
 	PlayerID       *string `json:"player_id,omitempty"`
 	Status         string  `json:"status"`
 	MatchesPlayed  int32   `json:"matches_played"`
@@ -307,19 +305,18 @@ func (h *Handlers) JoinSession(c *fiber.Ctx) error {
 	})
 }
 
-type RegisterGuestInput struct {
+type AddPlayerRequest struct {
 	DisplayName string `json:"display_name" validate:"required,min=1,max=60"`
 	Gender      string `json:"gender" validate:"required,oneof=MALE FEMALE"`
 }
 
-type RegisterGuestsRequest struct {
-	Guests []RegisterGuestInput `json:"guests" validate:"required,min=1,dive"`
+type AddPlayersRequest struct {
+	Players []AddPlayerRequest `json:"players" validate:"required,min=1,dive"`
 }
 
-// RegisterGuests lets a host add players on behalf of people who didn't join
-// via the invite link. Names are matched case-insensitively against existing
-// club members so re-adding the same guest reuses their identity.
-func (h *Handlers) RegisterGuests(c *fiber.Ctx) error {
+// AddPlayers adds named players to a session. Names are matched
+// case-insensitively against existing club members to preserve identity.
+func (h *Handlers) AddPlayers(c *fiber.Ctx) error {
 	id, err := ParseUUIDParam(c, "sessionId")
 	if err != nil {
 		return HandleError(c, err)
@@ -327,23 +324,23 @@ func (h *Handlers) RegisterGuests(c *fiber.Ctx) error {
 	if err := h.requireHostOfSession(c, id); err != nil {
 		return HandleError(c, err)
 	}
-	var req RegisterGuestsRequest
+	var req AddPlayersRequest
 	if err := BindAndValidate(c, &req); err != nil {
 		return HandleError(c, err)
 	}
 
-	guests := make([]session.GuestInput, 0, len(req.Guests))
-	for _, g := range req.Guests {
-		guests = append(guests, session.GuestInput{DisplayName: g.DisplayName, Gender: player.Gender(g.Gender)})
+	players := make([]session.AddPlayerInput, 0, len(req.Players))
+	for _, g := range req.Players {
+		players = append(players, session.AddPlayerInput{DisplayName: g.DisplayName, Gender: player.Gender(g.Gender)})
 	}
 
-	players, err := h.Sessions.RegisterGuests(c.UserContext(), session.RegisterGuestsInput{SessionID: id, Guests: guests})
+	added, err := h.Sessions.AddPlayers(c.UserContext(), session.AddPlayersInput{SessionID: id, Players: players})
 	if err != nil {
 		return HandleError(c, err)
 	}
 
-	dtos := make([]SessionPlayerDTO, 0, len(players))
-	for _, p := range players {
+	dtos := make([]SessionPlayerDTO, 0, len(added))
+	for _, p := range added {
 		dtos = append(dtos, toSessionPlayerDTO(p))
 	}
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"session_players": dtos})

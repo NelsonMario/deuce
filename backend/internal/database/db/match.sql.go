@@ -25,10 +25,9 @@ type AddMatchPlayerParams struct {
 	RatingBefore pgtype.Float8 `json:"rating_before"`
 }
 
-// player_id is cast explicitly because the column is nullable (see
-// migration 000001 — cleared via ON DELETE SET NULL when a guest is later
-// deleted); a live match is always assigned a real player, so keep the
-// parameter typed as a plain, non-nullable uuid.
+// player_id is nullable for historical compatibility, but a live match
+// always assigns a real player. Keep the parameter typed as a plain,
+// non-nullable uuid.
 func (q *Queries) AddMatchPlayer(ctx context.Context, arg AddMatchPlayerParams) (MatchPlayer, error) {
 	row := q.db.QueryRow(ctx, addMatchPlayer,
 		arg.MatchID,
@@ -81,6 +80,32 @@ func (q *Queries) CreateMatch(ctx context.Context, arg CreateMatchParams) (Match
 	return i, err
 }
 
+<<<<<<< Updated upstream
+=======
+const deleteMatch = `-- name: DeleteMatch :exec
+DELETE FROM matches WHERE id = $1
+`
+
+func (q *Queries) DeleteMatch(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteMatch, id)
+	return err
+}
+
+const deleteMatchPlayer = `-- name: DeleteMatchPlayer :exec
+DELETE FROM match_players WHERE match_id = $1 AND player_id = $2::uuid
+`
+
+type DeleteMatchPlayerParams struct {
+	MatchID  uuid.UUID `json:"match_id"`
+	PlayerID uuid.UUID `json:"player_id"`
+}
+
+func (q *Queries) DeleteMatchPlayer(ctx context.Context, arg DeleteMatchPlayerParams) error {
+	_, err := q.db.Exec(ctx, deleteMatchPlayer, arg.MatchID, arg.PlayerID)
+	return err
+}
+
+>>>>>>> Stashed changes
 const finishMatch = `-- name: FinishMatch :one
 UPDATE matches
 SET status = 'FINISHED', ended_at = now(), score_a = $2, score_b = $3, winner = $4, updated_at = now()

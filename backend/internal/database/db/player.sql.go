@@ -9,38 +9,12 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
-
-const createGuestPlayer = `-- name: CreateGuestPlayer :one
-INSERT INTO players (display_name, gender, is_guest)
-VALUES ($1, $2, true)
-RETURNING id, display_name, gender, created_at, updated_at, is_guest
-`
-
-type CreateGuestPlayerParams struct {
-	DisplayName string       `json:"display_name"`
-	Gender      PlayerGender `json:"gender"`
-}
-
-func (q *Queries) CreateGuestPlayer(ctx context.Context, arg CreateGuestPlayerParams) (Player, error) {
-	row := q.db.QueryRow(ctx, createGuestPlayer, arg.DisplayName, arg.Gender)
-	var i Player
-	err := row.Scan(
-		&i.ID,
-		&i.DisplayName,
-		&i.Gender,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.IsGuest,
-	)
-	return i, err
-}
 
 const createPlayer = `-- name: CreatePlayer :one
 INSERT INTO players (display_name, gender)
 VALUES ($1, $2)
-RETURNING id, display_name, gender, created_at, updated_at, is_guest
+RETURNING id, display_name, gender, created_at, updated_at
 `
 
 type CreatePlayerParams struct {
@@ -57,7 +31,6 @@ func (q *Queries) CreatePlayer(ctx context.Context, arg CreatePlayerParams) (Pla
 		&i.Gender,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.IsGuest,
 	)
 	return i, err
 }
@@ -104,49 +77,8 @@ func (q *Queries) CreatePlayerToken(ctx context.Context, arg CreatePlayerTokenPa
 	return i, err
 }
 
-const deleteStaleGuests = `-- name: DeleteStaleGuests :many
-DELETE FROM players
-WHERE is_guest
-  AND updated_at < $1::timestamptz
-  AND NOT EXISTS (
-    SELECT 1
-    FROM session_players sp
-    JOIN sessions s ON s.id = sp.session_id
-    WHERE sp.player_id = players.id
-      AND s.status IN ('NOT_STARTED', 'ACTIVE')
-  )
-RETURNING id
-`
-
-// match_players.player_id and session_players.player_id both ON DELETE SET
-// NULL (see migration 000001), so deleting the guest here preserves the
-// match/session history it took part in (score, team, rating deltas,
-// session roster slot) and only clears the link back to its identity.
-// rating_history, player_ratings, club_members and player_tokens still
-// cascade away — those are the guest's own state/ledger, not match/session
-// history, and the guest is gone anyway.
-func (q *Queries) DeleteStaleGuests(ctx context.Context, cutoff pgtype.Timestamptz) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, deleteStaleGuests, cutoff)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getPlayer = `-- name: GetPlayer :one
-SELECT id, display_name, gender, created_at, updated_at, is_guest FROM players WHERE id = $1
+SELECT id, display_name, gender, created_at, updated_at FROM players WHERE id = $1
 `
 
 func (q *Queries) GetPlayer(ctx context.Context, id uuid.UUID) (Player, error) {
@@ -158,13 +90,12 @@ func (q *Queries) GetPlayer(ctx context.Context, id uuid.UUID) (Player, error) {
 		&i.Gender,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.IsGuest,
 	)
 	return i, err
 }
 
 const getPlayerByTokenHash = `-- name: GetPlayerByTokenHash :one
-SELECT p.id, p.display_name, p.gender, p.created_at, p.updated_at, p.is_guest
+SELECT p.id, p.display_name, p.gender, p.created_at, p.updated_at
 FROM players p
 JOIN player_tokens t ON t.player_id = p.id
 WHERE t.token_hash = $1 AND t.revoked_at IS NULL
@@ -179,7 +110,6 @@ func (q *Queries) GetPlayerByTokenHash(ctx context.Context, tokenHash string) (P
 		&i.Gender,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.IsGuest,
 	)
 	return i, err
 }
@@ -221,7 +151,7 @@ func (q *Queries) GetPlayerRatingsByIDs(ctx context.Context, playerIds []uuid.UU
 }
 
 const getPlayersByIDs = `-- name: GetPlayersByIDs :many
-SELECT id, display_name, gender, created_at, updated_at, is_guest FROM players
+SELECT id, display_name, gender, created_at, updated_at FROM players
 WHERE id = ANY($1::uuid[])
 `
 
@@ -240,7 +170,6 @@ func (q *Queries) GetPlayersByIDs(ctx context.Context, playerIds []uuid.UUID) ([
 			&i.Gender,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.IsGuest,
 		); err != nil {
 			return nil, err
 		}
@@ -411,7 +340,7 @@ const updatePlayerProfile = `-- name: UpdatePlayerProfile :one
 UPDATE players
 SET display_name = $2, gender = $3, updated_at = now()
 WHERE id = $1
-RETURNING id, display_name, gender, created_at, updated_at, is_guest
+RETURNING id, display_name, gender, created_at, updated_at
 `
 
 type UpdatePlayerProfileParams struct {
@@ -429,7 +358,6 @@ func (q *Queries) UpdatePlayerProfile(ctx context.Context, arg UpdatePlayerProfi
 		&i.Gender,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.IsGuest,
 	)
 	return i, err
 }

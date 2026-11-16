@@ -25,10 +25,9 @@ RETURNING *;
 SELECT * FROM matches WHERE session_id = $1 ORDER BY created_at DESC;
 
 -- name: AddMatchPlayer :one
--- player_id is cast explicitly because the column is nullable (see
--- migration 000001 — cleared via ON DELETE SET NULL when a guest is later
--- deleted); a live match is always assigned a real player, so keep the
--- parameter typed as a plain, non-nullable uuid.
+-- player_id is nullable for historical compatibility, but a live match
+-- always assigns a real player. Keep the parameter typed as a plain,
+-- non-nullable uuid.
 INSERT INTO match_players (match_id, player_id, team, rating_before)
 VALUES (sqlc.arg(match_id), sqlc.arg(player_id)::uuid, sqlc.arg(team), sqlc.arg(rating_before))
 RETURNING *;
@@ -50,3 +49,20 @@ SET rating_after = sqlc.arg(rating_after), rating_change = sqlc.arg(rating_chang
 WHERE match_id = sqlc.arg(match_id) AND player_id = sqlc.arg(player_id)::uuid
 RETURNING *;
 
+<<<<<<< Updated upstream
+=======
+-- name: DeleteMatchPlayer :exec
+DELETE FROM match_players WHERE match_id = sqlc.arg(match_id) AND player_id = sqlc.arg(player_id)::uuid;
+
+
+-- name: DeleteMatch :exec
+DELETE FROM matches WHERE id = $1;
+
+
+-- name: UpdateMatchPlayerTeam :one
+UPDATE match_players
+SET team = sqlc.arg(team)
+WHERE match_id = sqlc.arg(match_id) AND player_id = sqlc.arg(player_id)::uuid
+RETURNING *;
+
+>>>>>>> Stashed changes

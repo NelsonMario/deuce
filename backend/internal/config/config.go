@@ -22,11 +22,7 @@ type Config struct {
 	DBSSLMode         string
 	JoinCodeLength    int
 	PlayerTokenSecret string
-	// CronAPISecret authenticates the internal /internal/cleanup-guests
-	// endpoint (checked against the X-Cron-Secret header). Leave unset to
-	// disable the endpoint entirely.
-	CronAPISecret string
-	CORSOrigins   []string
+	CORSOrigins       []string
 	// RedisHost is optional. When unset, device-identity linking (v2) is
 	// disabled and the app behaves exactly as v1 (every join creates a new
 	// player identity).
@@ -35,6 +31,11 @@ type Config struct {
 	RedisUsername string
 	RedisPassword string
 	RedisTLS      bool
+	// WhatsApp is optional. When these values are absent, the core Deuce API
+	// runs normally with no bot connection.
+	WhatsAppGroupJID  string
+	WhatsAppAdminJIDs []string
+	WhatsAppClubID    string
 }
 
 func Load() (*Config, error) {
@@ -49,11 +50,17 @@ func Load() (*Config, error) {
 		DBName:            os.Getenv("DB_NAME"),
 		DBSSLMode:         getEnv("DB_SSLMODE", "disable"),
 		PlayerTokenSecret: os.Getenv("PLAYER_TOKEN_SECRET"),
-		CronAPISecret:     os.Getenv("CRON_API_SECRET"),
 		RedisHost:         os.Getenv("REDIS_HOST"),
 		RedisPort:         getEnv("REDIS_PORT", "6379"),
 		RedisUsername:     getEnv("REDIS_USERNAME", "default"),
 		RedisPassword:     os.Getenv("REDIS_PASSWORD"),
+		WhatsAppGroupJID:  strings.TrimSpace(os.Getenv("WHATSAPP_GROUP_JID")),
+		WhatsAppClubID:    strings.TrimSpace(os.Getenv("WHATSAPP_CLUB_ID")),
+	}
+	for _, jid := range strings.Split(os.Getenv("WHATSAPP_ADMIN_JIDS"), ",") {
+		if jid = strings.TrimSpace(jid); jid != "" {
+			cfg.WhatsAppAdminJIDs = append(cfg.WhatsAppAdminJIDs, jid)
+		}
 	}
 
 	redisTLS, err := strconv.ParseBool(getEnv("REDIS_TLS", "false"))

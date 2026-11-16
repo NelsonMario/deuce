@@ -23,8 +23,7 @@ type Repository interface {
 	GetMember(ctx context.Context, clubID, playerID uuid.UUID) (Member, error)
 	// FindMemberPlayerByName returns the player identity of a club member whose
 	// display name matches case-insensitively, or ErrNotFound if no member has
-	// that name. Guest registration uses it to reuse an existing player row
-	// instead of creating a duplicate for a guest the host re-registers.
+	// that name. Session registration uses it to avoid duplicate player rows.
 	FindMemberPlayerByName(ctx context.Context, clubID uuid.UUID, displayName string) (player.Player, error)
 	ListMembers(ctx context.Context, clubID uuid.UUID) ([]Member, error)
 	SetMemberRole(ctx context.Context, clubID, playerID uuid.UUID, role Role) (Member, error)

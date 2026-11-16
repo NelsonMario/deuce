@@ -23,12 +23,8 @@ type Player struct {
 	ID          uuid.UUID
 	DisplayName string
 	Gender      Gender
-	// IsGuest marks a player the host registered on behalf of someone who
-	// didn't join via the invite link. Guests have no device-linked identity
-	// and are periodically cleaned up by an external cron job.
-	IsGuest   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type Rating struct {

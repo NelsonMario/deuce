@@ -15,11 +15,10 @@ type PlayerDTO struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
 	Gender      string `json:"gender"`
-	IsGuest     bool   `json:"is_guest"`
 }
 
 func toPlayerDTO(p player.Player) PlayerDTO {
-	return PlayerDTO{ID: p.ID.String(), DisplayName: p.DisplayName, Gender: string(p.Gender), IsGuest: p.IsGuest}
+	return PlayerDTO{ID: p.ID.String(), DisplayName: p.DisplayName, Gender: string(p.Gender)}
 }
 
 type BatchIDsRequest struct {
@@ -165,34 +164,6 @@ func (h *Handlers) ListPlayerMatches(c *fiber.Ctx) error {
 		})
 	}
 	return c.JSON(fiber.Map{"matches": dtos})
-}
-
-type CleanupGuestsRequest struct {
-	RetentionDays int `json:"retention_days"`
-}
-
-type CleanupGuestsResponse struct {
-	Deleted int `json:"deleted"`
-}
-
-// CleanupGuests deletes guest players not seen in RetentionDays days,
-// skipping guests still in a not-started/active session. It's gated by
-// middleware.RequireCronSecret, not player auth — see the guest cleanup
-// GitHub Actions workflow, which calls this on a schedule instead of
-// running SQL against the database directly.
-func (h *Handlers) CleanupGuests(c *fiber.Ctx) error {
-	req := CleanupGuestsRequest{RetentionDays: 30}
-	if len(c.Body()) > 0 {
-		if err := c.BodyParser(&req); err != nil {
-			return HandleError(c, apperr.Validation("invalid request body"))
-		}
-	}
-
-	deleted, err := h.Players.CleanupStaleGuests(c.UserContext(), req.RetentionDays)
-	if err != nil {
-		return HandleError(c, err)
-	}
-	return c.JSON(CleanupGuestsResponse{Deleted: deleted})
 }
 
 func pagination(c *fiber.Ctx) (int32, int32) {

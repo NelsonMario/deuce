@@ -27,10 +27,9 @@ type AddSessionPlayerParams struct {
 // ============================================================
 // Session players
 // ============================================================
-// player_id is cast explicitly because the column is nullable (see
-// migration 000001 — cleared via ON DELETE SET NULL when a guest is later
-// deleted); joining a session always assigns a real player, so keep the
-// parameter typed as a plain, non-nullable uuid.
+// player_id is nullable for historical compatibility, but adding a player
+// always assigns a real player. Keep the parameter typed as a plain,
+// non-nullable uuid.
 func (q *Queries) AddSessionPlayer(ctx context.Context, arg AddSessionPlayerParams) (SessionPlayer, error) {
 	row := q.db.QueryRow(ctx, addSessionPlayer, arg.SessionID, arg.PlayerID)
 	var i SessionPlayer

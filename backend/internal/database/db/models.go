@@ -494,7 +494,6 @@ type Player struct {
 	Gender      PlayerGender       `json:"gender"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	IsGuest     bool               `json:"is_guest"`
 }
 
 type PlayerRating struct {
@@ -546,4 +545,19 @@ type SessionPlayer struct {
 	Losses                    int32               `json:"losses"`
 	CreatedAt                 pgtype.Timestamptz  `json:"created_at"`
 	UpdatedAt                 pgtype.Timestamptz  `json:"updated_at"`
+}
+
+type WhatsappGroupOutbox struct {
+	ID            uuid.UUID          `json:"id"`
+	SessionID     uuid.UUID          `json:"session_id"`
+	MatchID       uuid.UUID          `json:"match_id"`
+	GroupJid      string             `json:"group_jid"`
+	Payload       []byte             `json:"payload"`
+	Status        string             `json:"status"`
+	Attempts      int32              `json:"attempts"`
+	LastError     pgtype.Text        `json:"last_error"`
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	SentAt        pgtype.Timestamptz `json:"sent_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }

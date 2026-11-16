@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"deuce/backend/internal/database/db"
@@ -20,7 +18,6 @@ const InitialRating = 1000.0
 
 type Repository interface {
 	Create(ctx context.Context, displayName string, gender Gender) (Player, error)
-	CreateGuest(ctx context.Context, displayName string, gender Gender) (Player, error)
 	GetByID(ctx context.Context, id uuid.UUID) (Player, error)
 	GetByIDs(ctx context.Context, ids []uuid.UUID) ([]Player, error)
 	UpdateProfile(ctx context.Context, id uuid.UUID, displayName string, gender Gender) (Player, error)
@@ -32,10 +29,6 @@ type Repository interface {
 	GetRatingsByIDs(ctx context.Context, ids []uuid.UUID) ([]Rating, error)
 	ListRatingHistory(ctx context.Context, playerID uuid.UUID, limit, offset int32) ([]RatingHistoryEntry, error)
 	ListMatches(ctx context.Context, playerID uuid.UUID, limit, offset int32) ([]MatchSummary, error)
-	// CleanupStaleGuests deletes guest players not updated since cutoff and
-	// not currently in an active/not-started session, returning how many
-	// were deleted.
-	CleanupStaleGuests(ctx context.Context, cutoff time.Time) (int, error)
 }
 
 type pgRepository struct {
@@ -47,9 +40,7 @@ func NewRepository(pool *pgxpool.Pool) Repository {
 }
 
 // q builds a non-transactional *db.Queries from the pool. Cheap to call per
-// method (it just wraps the existing pool pointer, no new connection) —
-// CleanupStaleGuests is the only method that instead needs the pool itself,
-// to open an explicit transaction via database.RunInTx.
+// method: it only wraps the existing pool pointer.
 func (r *pgRepository) q() *db.Queries {
 	return db.New(r.pool)
 }
@@ -61,17 +52,6 @@ func (r *pgRepository) Create(ctx context.Context, displayName string, gender Ge
 	})
 	if err != nil {
 		return Player{}, fmt.Errorf("create player: %w", err)
-	}
-	return toPlayer(row), nil
-}
-
-func (r *pgRepository) CreateGuest(ctx context.Context, displayName string, gender Gender) (Player, error) {
-	row, err := r.q().CreateGuestPlayer(ctx, db.CreateGuestPlayerParams{
-		DisplayName: displayName,
-		Gender:      db.PlayerGender(gender),
-	})
-	if err != nil {
-		return Player{}, fmt.Errorf("create guest player: %w", err)
 	}
 	return toPlayer(row), nil
 }
@@ -250,26 +230,11 @@ func (r *pgRepository) ListMatches(ctx context.Context, playerID uuid.UUID, limi
 	return summaries, nil
 }
 
-// CleanupStaleGuests deletes stale guests in a single statement. It doesn't
-// need an explicit transaction: match_players.player_id and
-// session_players.player_id are both ON DELETE SET NULL (see migration
-// 000004), so the delete alone atomically clears those links while leaving
-// the match/session rows themselves — and everything else that isn't
-// guest-owned state — untouched.
-func (r *pgRepository) CleanupStaleGuests(ctx context.Context, cutoff time.Time) (int, error) {
-	ids, err := r.q().DeleteStaleGuests(ctx, pgtype.Timestamptz{Time: cutoff, Valid: true})
-	if err != nil {
-		return 0, fmt.Errorf("delete stale guests: %w", err)
-	}
-	return len(ids), nil
-}
-
 func toPlayer(row db.Player) Player {
 	return Player{
 		ID:          row.ID,
 		DisplayName: row.DisplayName,
 		Gender:      Gender(row.Gender),
-		IsGuest:     row.IsGuest,
 		CreatedAt:   row.CreatedAt.Time,
 		UpdatedAt:   row.UpdatedAt.Time,
 	}

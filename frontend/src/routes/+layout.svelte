@@ -1,6 +1,11 @@
 <script lang="ts">
 	import "../lib/styles/app.css";
+<<<<<<< Updated upstream
 	import ToastHost from "$lib/components/ToastHost.svelte";
+=======
+	import Cursor from "$lib/components/Cursor.svelte";
+	import Marquee from "$lib/components/Marquee.svelte";
+>>>>>>> Stashed changes
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
@@ -172,8 +177,6 @@
 		</div>
 	</footer>
 </div>
-
-<ToastHost />
 
 <style>
 	.shell {

@@ -56,10 +56,7 @@ type Match struct {
 
 type Player struct {
 	MatchID uuid.UUID
-	// PlayerID is nil once the guest it belonged to has been deleted by the
-	// cleanup job (see internal/player) — the match_players row itself
-	// survives (ON DELETE SET NULL) so the match's history (team, ratings)
-	// stays, only the link back to the guest's identity is gone.
+	// PlayerID remains nullable for compatibility with historical rows.
 	PlayerID     *uuid.UUID
 	Team         Team
 	RatingBefore float64

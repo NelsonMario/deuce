@@ -23,9 +23,6 @@ type Deps struct {
 	// RateLimiter backs middleware.RateLimit. Defaults to ratelimit.NoopLimiter
 	// (no limiting) if left unset, e.g. in tests that don't care about it.
 	RateLimiter ratelimit.Limiter
-	// CronAPISecret gates POST /internal/cleanup-guests (see
-	// middleware.RequireCronSecret). Leave empty to disable the endpoint.
-	CronAPISecret string
 }
 
 func NewApp(d Deps) *fiber.App {
@@ -72,7 +69,7 @@ func NewApp(d Deps) *fiber.App {
 	sessions.Patch("/:sessionId/assignment-mode", requireAuth, d.Handlers.SetAssignmentMode)
 	sessions.Patch("/:sessionId/auto-fill", requireAuth, d.Handlers.SetAutoFillEnabled)
 	sessions.Post("/:sessionId/courts", requireAuth, d.Handlers.CreateCourt)
-	sessions.Post("/:sessionId/guests", requireAuth, d.Handlers.RegisterGuests)
+	sessions.Post("/:sessionId/players", requireAuth, d.Handlers.AddPlayers)
 	sessions.Post("/:sessionId/matches/generate", requireAuth, d.Handlers.GenerateMatch)
 	sessions.Post("/:sessionId/matches/auto/preview", requireAuth, d.Handlers.PreviewAutoMatch)
 	sessions.Post("/:sessionId/matches/manual/recommend", requireAuth, d.Handlers.RecommendManualMatch)
@@ -86,6 +83,15 @@ func NewApp(d Deps) *fiber.App {
 	matches.Get("/:matchId", requireAuth, d.Handlers.GetMatch)
 	matches.Post("/:matchId/start", requireAuth, d.Handlers.StartMatch)
 	matches.Post("/:matchId/finish", requireAuth, d.Handlers.FinishMatch)
+<<<<<<< Updated upstream
+=======
+	matches.Post("/:matchId/cancel", requireAuth, d.Handlers.CancelMatch)
+	matches.Put("/:matchId/roster", requireAuth, d.Handlers.UpdateMatchRoster)
+>>>>>>> Stashed changes
+
+	whatsapp := v1.Group("/whatsapp")
+	whatsapp.Get("/status", requireAuth, d.Handlers.WhatsApp.GetStatus)
+	whatsapp.Get("/qr", requireAuth, d.Handlers.WhatsApp.GetQR)
 
 	players := v1.Group("/players")
 	players.Post("/batch", requireAuth, d.Handlers.GetPlayersBatch)
@@ -94,9 +100,6 @@ func NewApp(d Deps) *fiber.App {
 	players.Get("/:playerId/rating", requireAuth, d.Handlers.GetPlayerRating)
 	players.Put("/:playerId/rating", requireAuth, d.Handlers.UpdatePlayerRating)
 	players.Get("/:playerId/matches", requireAuth, d.Handlers.ListPlayerMatches)
-
-	internal := app.Group("/internal")
-	internal.Post("/cleanup-guests", middleware.RequireCronSecret(d.CronAPISecret), d.Handlers.CleanupGuests)
 
 	return app
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -27,15 +28,39 @@ import (
 //     session before selecting any of them), and
 //   - a match can never finish without its rating updates, or vice versa
 //     (both happen in the same transaction).
+//
+// Announcement contains the public information that belongs in a group
+// message after a match is assigned. It deliberately has no WhatsApp types:
+// match remains independent of the delivery adapter.
+type Announcement struct {
+	SessionID uuid.UUID
+	MatchID   uuid.UUID
+	CourtName string
+	Format    string
+	TeamA     [2]string
+	TeamB     [2]string
+}
+
+// AnnouncementOutbox persists an announcement in the caller's transaction.
+// A failed or disconnected WhatsApp client must never affect matchmaking.
+type AnnouncementOutbox interface {
+	Enqueue(ctx context.Context, tx pgx.Tx, announcement Announcement) error
+}
+
 type Service struct {
 	pool   *pgxpool.Pool
 	reads  ReadRepository
 	locker lock.Locker
 	logger *slog.Logger
+	outbox AnnouncementOutbox
 }
 
 func NewService(pool *pgxpool.Pool, reads ReadRepository, locker lock.Locker, logger *slog.Logger) *Service {
 	return &Service{pool: pool, reads: reads, locker: locker, logger: logger}
+}
+
+func (s *Service) SetAnnouncementOutbox(outbox AnnouncementOutbox) {
+	s.outbox = outbox
 }
 
 // matchGenLockTTL bounds how long a double-tap guard entry can survive if
@@ -55,12 +80,9 @@ func matchGenLockKey(sessionID, courtID uuid.UUID) string {
 
 // sessionPlayerID extracts the player id from a session_players row fetched
 // as a live matchmaking candidate (ListWaitingSessionPlayersForUpdate,
-// LockSessionPlayersByIDs). player_id is nullable at the schema level (see
-// migration 000001) so a deleted guest's historical row can survive, but
-// both call sites only ever select WAITING rows in an ACTIVE session — and
-// the guest cleanup job never deletes a guest still in a NOT_STARTED/ACTIVE
-// session (internal/player.CleanupStaleGuests) — so player_id is always
-// non-null here.
+// LockSessionPlayersByIDs). player_id is nullable at the schema level for
+// historical compatibility, but both call sites select current players in
+// an ACTIVE session, so it is always non-null here.
 func sessionPlayerID(sp db.SessionPlayer) uuid.UUID {
 	return uuid.UUID(sp.PlayerID.Bytes)
 }
@@ -178,7 +200,7 @@ func (s *Service) GenerateAutomatic(ctx context.Context, in GenerateInput) (Matc
 	var result Match
 	now := time.Now()
 
-	err := database.RunInTx(ctx, s.pool, func(q *db.Queries) error {
+	err := database.RunInTxWithTx(ctx, s.pool, func(tx pgx.Tx, q *db.Queries) error {
 		waiting, err := q.ListWaitingSessionPlayersForUpdate(ctx, in.SessionID)
 		if err != nil {
 			return fmt.Errorf("lock waiting session players: %w", err)
@@ -247,6 +269,20 @@ func (s *Service) GenerateAutomatic(ctx context.Context, in GenerateInput) (Matc
 			uuid.MustParse(proposal.TeamA[1].PlayerID),
 			uuid.MustParse(proposal.TeamB[0].PlayerID),
 			uuid.MustParse(proposal.TeamB[1].PlayerID),
+		}
+		if s.outbox != nil {
+			ids := [4]uuid.UUID{uuid.MustParse(proposal.TeamA[0].PlayerID), uuid.MustParse(proposal.TeamA[1].PlayerID), uuid.MustParse(proposal.TeamB[0].PlayerID), uuid.MustParse(proposal.TeamB[1].PlayerID)}
+			names := make(map[uuid.UUID]string, 4)
+			for _, id := range ids {
+				p, err := q.GetPlayer(ctx, id)
+				if err != nil {
+					return fmt.Errorf("get player name: %w", err)
+				}
+				names[id] = p.DisplayName
+			}
+			if err := s.outbox.Enqueue(ctx, tx, Announcement{SessionID: in.SessionID, MatchID: m.ID, CourtName: court.Name, Format: string(in.Format), TeamA: [2]string{names[ids[0]], names[ids[1]]}, TeamB: [2]string{names[ids[2]], names[ids[3]]}}); err != nil {
+				return fmt.Errorf("enqueue group announcement: %w", err)
+			}
 		}
 		return nil
 	})
@@ -396,7 +432,7 @@ func (s *Service) ConfirmManual(ctx context.Context, in ConfirmManualInput) (Mat
 	}
 
 	var result Match
-	err := database.RunInTx(ctx, s.pool, func(q *db.Queries) error {
+	err := database.RunInTxWithTx(ctx, s.pool, func(tx pgx.Tx, q *db.Queries) error {
 		locked, err := q.LockSessionPlayersByIDs(ctx, mustSessionPlayerIDs(ctx, q, in.SessionID, ids))
 		if err != nil {
 			return fmt.Errorf("lock session players: %w", err)
@@ -430,6 +466,10 @@ func (s *Service) ConfirmManual(ctx context.Context, in ConfirmManualInput) (Mat
 				return fmt.Errorf("get player: %w", err)
 			}
 			genders[id] = matchmaking.Gender(p.Gender)
+		}
+
+		if err := validateFormatGenders(in.Format, [2]matchmaking.Gender{genders[in.TeamA[0]], genders[in.TeamA[1]]}, [2]matchmaking.Gender{genders[in.TeamB[0]], genders[in.TeamB[1]]}); err != nil {
+			return err
 		}
 
 		court, err := q.LockAvailableCourtForUpdate(ctx, in.CourtID)
@@ -471,6 +511,19 @@ func (s *Service) ConfirmManual(ctx context.Context, in ConfirmManualInput) (Mat
 		result.Players = []uuid.UUID{
 			in.TeamA[0], in.TeamA[1], in.TeamB[0], in.TeamB[1],
 		}
+		if s.outbox != nil {
+			names := make(map[uuid.UUID]string, 4)
+			for _, id := range ids {
+				p, err := q.GetPlayer(ctx, id)
+				if err != nil {
+					return fmt.Errorf("get player name: %w", err)
+				}
+				names[id] = p.DisplayName
+			}
+			if err := s.outbox.Enqueue(ctx, tx, Announcement{SessionID: in.SessionID, MatchID: m.ID, CourtName: court.Name, Format: string(in.Format), TeamA: [2]string{names[in.TeamA[0]], names[in.TeamA[1]]}, TeamB: [2]string{names[in.TeamB[0]], names[in.TeamB[1]]}}); err != nil {
+				return fmt.Errorf("enqueue group announcement: %w", err)
+			}
+		}
 		return nil
 	})
 
@@ -483,6 +536,24 @@ func (s *Service) ConfirmManual(ctx context.Context, in ConfirmManualInput) (Mat
 
 	s.logger.Info("match_generated", "session_id", in.SessionID, "match_id", result.ID, "format", in.Format, "mode", "manual")
 	return result, nil
+}
+
+func validateFormatGenders(format Format, teamA, teamB [2]matchmaking.Gender) error {
+	switch format {
+	case MixedDoubles:
+		if !validMixedTeam(teamA[0], teamA[1]) || !validMixedTeam(teamB[0], teamB[1]) {
+			return apperr.Validation("mixed doubles requires one male and one female per team")
+		}
+	case MenDoubles:
+		if teamA[0] != matchmaking.Male || teamA[1] != matchmaking.Male || teamB[0] != matchmaking.Male || teamB[1] != matchmaking.Male {
+			return apperr.Validation("men's doubles requires all male players")
+		}
+	case WomenDoubles:
+		if teamA[0] != matchmaking.Female || teamA[1] != matchmaking.Female || teamB[0] != matchmaking.Female || teamB[1] != matchmaking.Female {
+			return apperr.Validation("women's doubles requires all female players")
+		}
+	}
+	return nil
 }
 
 func validMixedTeam(a, b matchmaking.Gender) bool {
@@ -519,6 +590,165 @@ func mustSessionPlayerIDs(ctx context.Context, q *db.Queries, sessionID uuid.UUI
 	return out
 }
 
+<<<<<<< Updated upstream
+=======
+type UpdateRosterInput struct {
+	MatchID               uuid.UUID
+	TeamA                 [2]uuid.UUID
+	TeamB                 [2]uuid.UUID
+	RemovedPlayerStatuses map[uuid.UUID]db.SessionPlayerStatus
+}
+
+// UpdateRoster atomically swaps, substitutes, or rearranges players in a match that is CREATED or PLAYING.
+func (s *Service) UpdateRoster(ctx context.Context, in UpdateRosterInput) (Match, error) {
+	ids := []uuid.UUID{in.TeamA[0], in.TeamA[1], in.TeamB[0], in.TeamB[1]}
+	if err := requireDistinct(ids); err != nil {
+		return Match{}, err
+	}
+
+	var result Match
+	err := database.RunInTx(ctx, s.pool, func(q *db.Queries) error {
+		m, err := q.LockMatchByID(ctx, in.MatchID)
+		if err != nil {
+			return apperr.NotFound("match")
+		}
+		if m.Status == db.MatchStatusFINISHED {
+			return apperr.InvalidState("cannot modify roster of a finished match")
+		}
+
+		existingPlayers, err := q.ListMatchPlayers(ctx, in.MatchID)
+		if err != nil {
+			return fmt.Errorf("list match players: %w", err)
+		}
+
+		existingMap := map[uuid.UUID]db.MatchPlayer{}
+		for _, p := range existingPlayers {
+			if p.PlayerID.Valid {
+				existingMap[uuid.UUID(p.PlayerID.Bytes)] = p
+			}
+		}
+
+		newMap := map[uuid.UUID]db.MatchTeam{
+			in.TeamA[0]: db.MatchTeamA,
+			in.TeamA[1]: db.MatchTeamA,
+			in.TeamB[0]: db.MatchTeamB,
+			in.TeamB[1]: db.MatchTeamB,
+		}
+
+		genders := map[uuid.UUID]matchmaking.Gender{}
+		for _, id := range ids {
+			p, err := q.GetPlayer(ctx, id)
+			if err != nil {
+				return fmt.Errorf("get player %s: %w", id, err)
+			}
+			genders[id] = matchmaking.Gender(p.Gender)
+		}
+		if err := validateFormatGenders(Format(m.Format), [2]matchmaking.Gender{genders[in.TeamA[0]], genders[in.TeamA[1]]}, [2]matchmaking.Gender{genders[in.TeamB[0]], genders[in.TeamB[1]]}); err != nil {
+			return err
+		}
+
+		// Handle removed players
+		for pID := range existingMap {
+			if _, kept := newMap[pID]; !kept {
+				if err := q.DeleteMatchPlayer(ctx, db.DeleteMatchPlayerParams{
+					MatchID:  in.MatchID,
+					PlayerID: pID,
+				}); err != nil {
+					return fmt.Errorf("delete match player: %w", err)
+				}
+
+				sp, err := q.GetSessionPlayerBySessionAndPlayerForUpdate(ctx, db.GetSessionPlayerBySessionAndPlayerForUpdateParams{
+					SessionID: m.SessionID,
+					PlayerID:  pID,
+				})
+				if err != nil {
+					return fmt.Errorf("get session player: %w", err)
+				}
+
+				nextStatus := db.SessionPlayerStatusBREAK
+				if override, ok := in.RemovedPlayerStatuses[pID]; ok && string(override) != "" {
+					nextStatus = override
+				}
+				if _, err := q.SetSessionPlayerStatus(ctx, db.SetSessionPlayerStatusParams{
+					ID:     sp.ID,
+					Status: nextStatus,
+				}); err != nil {
+					return fmt.Errorf("update removed session player status: %w", err)
+				}
+			}
+		}
+
+		// Handle added and kept players
+		for _, pID := range ids {
+			team := newMap[pID]
+			existingMP, kept := existingMap[pID]
+
+			sp, err := q.GetSessionPlayerBySessionAndPlayerForUpdate(ctx, db.GetSessionPlayerBySessionAndPlayerForUpdateParams{
+				SessionID: m.SessionID,
+				PlayerID:  pID,
+			})
+			if err != nil {
+				return apperr.PlayerNotEligible("player is not part of this session")
+			}
+
+			if !kept {
+				if sp.Status == db.SessionPlayerStatusPLAYING {
+					return apperr.Conflict("player is already playing in another match")
+				}
+				if sp.Status == db.SessionPlayerStatusENDED {
+					return apperr.PlayerNotEligible("player has left the session")
+				}
+
+				r, err := q.GetPlayerRating(ctx, pID)
+				if err != nil {
+					return fmt.Errorf("get player rating: %w", err)
+				}
+
+				if _, err := q.AddMatchPlayer(ctx, db.AddMatchPlayerParams{
+					MatchID:      in.MatchID,
+					PlayerID:     pID,
+					Team:         team,
+					RatingBefore: pgtype.Float8{Float64: r.Rating, Valid: true},
+				}); err != nil {
+					return fmt.Errorf("add match player: %w", err)
+				}
+
+				if _, err := q.SetSessionPlayerStatus(ctx, db.SetSessionPlayerStatusParams{
+					ID:     sp.ID,
+					Status: db.SessionPlayerStatusPLAYING,
+				}); err != nil {
+					return fmt.Errorf("set session player playing: %w", err)
+				}
+			} else {
+				if existingMP.Team != team {
+					if _, err := q.UpdateMatchPlayerTeam(ctx, db.UpdateMatchPlayerTeamParams{
+						MatchID:  in.MatchID,
+						PlayerID: pID,
+						Team:     team,
+					}); err != nil {
+						return fmt.Errorf("update match player team: %w", err)
+					}
+				}
+			}
+		}
+
+		result = toMatch(m)
+		result.Players = ids
+		return nil
+	})
+
+	if err != nil {
+		if appErr, ok := apperr.As(err); ok {
+			return Match{}, appErr
+		}
+		return Match{}, apperr.Internal(err)
+	}
+
+	s.logger.Info("match_roster_updated", "match_id", in.MatchID)
+	return result, nil
+}
+
+>>>>>>> Stashed changes
 // ============================================================
 // Start / Finish
 // ============================================================
@@ -730,6 +960,62 @@ func (s *Service) FinishMatch(ctx context.Context, in FinishInput) (Match, error
 	s.logger.Info("match_finished", "match_id", in.MatchID, "score_a", in.ScoreA, "score_b", in.ScoreB)
 	s.logger.Info("rating_updated", "match_id", in.MatchID)
 	return result, nil
+}
+
+// CancelMatch cancels an active or created match, releases the court, and restores
+// the assigned players to WAITING status.
+func (s *Service) CancelMatch(ctx context.Context, matchID uuid.UUID) error {
+	err := database.RunInTx(ctx, s.pool, func(q *db.Queries) error {
+		m, err := q.LockMatchByID(ctx, matchID)
+		if err != nil {
+			return apperr.NotFound("match")
+		}
+		if m.Status == db.MatchStatusFINISHED {
+			return apperr.InvalidState("cannot cancel a finished match")
+		}
+
+		players, err := q.ListMatchPlayers(ctx, matchID)
+		if err != nil {
+			return fmt.Errorf("list match players: %w", err)
+		}
+
+		for _, p := range players {
+			if p.PlayerID.Valid {
+				pID := uuid.UUID(p.PlayerID.Bytes)
+				sp, err := q.GetSessionPlayerBySessionAndPlayerForUpdate(ctx, db.GetSessionPlayerBySessionAndPlayerForUpdateParams{
+					SessionID: m.SessionID,
+					PlayerID:  pID,
+				})
+				if err == nil {
+					if _, err := q.SetSessionPlayerStatus(ctx, db.SetSessionPlayerStatusParams{
+						ID:     sp.ID,
+						Status: db.SessionPlayerStatusWAITING,
+					}); err != nil {
+						return fmt.Errorf("restore session player waiting: %w", err)
+					}
+				}
+			}
+		}
+
+		if _, err := q.SetCourtStatus(ctx, db.SetCourtStatusParams{ID: m.CourtID, Status: db.CourtStatusAVAILABLE}); err != nil {
+			return fmt.Errorf("release court: %w", err)
+		}
+
+		if err := q.DeleteMatch(ctx, matchID); err != nil {
+			return fmt.Errorf("delete match: %w", err)
+		}
+		return nil
+	})
+
+	if err != nil {
+		if appErr, ok := apperr.As(err); ok {
+			return appErr
+		}
+		return apperr.Internal(err)
+	}
+
+	s.logger.Info("match_cancelled", "match_id", matchID)
+	return nil
 }
 
 func toProposal(format Format, p *matchmaking.Proposal) *Proposal {

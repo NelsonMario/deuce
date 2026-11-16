@@ -122,7 +122,7 @@ func (q *Queries) GetClubMember(ctx context.Context, arg GetClubMemberParams) (C
 }
 
 const getClubMemberPlayerByName = `-- name: GetClubMemberPlayerByName :one
-SELECT p.id, p.display_name, p.gender, p.created_at, p.updated_at, p.is_guest
+SELECT p.id, p.display_name, p.gender, p.created_at, p.updated_at
 FROM players p
 JOIN club_members cm ON cm.player_id = p.id
 WHERE cm.club_id = $1 AND lower(p.display_name) = lower($2)
@@ -144,7 +144,6 @@ func (q *Queries) GetClubMemberPlayerByName(ctx context.Context, arg GetClubMemb
 		&i.Gender,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.IsGuest,
 	)
 	return i, err
 }

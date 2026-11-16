@@ -17,9 +17,10 @@ type Handlers struct {
 	Players  *player.Service
 	Sessions *session.Service
 	Matches  *match.Service
+	WhatsApp *WhatsAppHandler
 	Logger   *slog.Logger
 }
 
-func New(clubs *club.Service, players *player.Service, sessions *session.Service, matches *match.Service, logger *slog.Logger) *Handlers {
-	return &Handlers{Clubs: clubs, Players: players, Sessions: sessions, Matches: matches, Logger: logger}
+func New(clubs *club.Service, players *player.Service, sessions *session.Service, matches *match.Service, whatsApp *WhatsAppHandler, logger *slog.Logger) *Handlers {
+	return &Handlers{Clubs: clubs, Players: players, Sessions: sessions, Matches: matches, WhatsApp: whatsApp, Logger: logger}
 }

@@ -1,12 +1,14 @@
-# Badminton Club Backend — V1
+# Deuce WhatsApp Group Bot
 
-Backend-first V1 for a badminton club app whose core value proposition is:
+Deuce is a backend service for one badminton WhatsApp group. Its core value
+proposition is:
 
 > Automatically rotate players fairly and create reasonably balanced doubles
 > matches using player ratings, waiting time, and match history.
 
-No frontend, no AI, no accounts. Players join via a club/session join code
-and authenticate with an opaque bearer token for the rest of the session.
+There are no player accounts, phone links, private messages, or player-facing
+web screens. Admins operate a session in the configured group; everyone in
+that group can read the public roster, match list, and status.
 
 ## Stack
 
@@ -140,9 +142,12 @@ to step in and hand-pick courts for a while. Auto-fill is meaningless in
 `MANUAL` mode — the poller only scans `AUTOMATIC` sessions with
 `auto_fill_enabled` set.
 
-## API
+## Operational API
 
-See [`docs/openapi.yaml`](docs/openapi.yaml) for the full contract. Summary:
+The HTTP API is retained for initial club provisioning, maintenance, and the
+authenticated WhatsApp QR/status endpoints. It is not a player workflow and
+the public product interface is the WhatsApp group. See
+[`docs/openapi.yaml`](docs/openapi.yaml) for its full contract.
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
@@ -232,6 +237,71 @@ history carry over instead of resetting at every join.
   plain v1 behavior (every join is a new identity) rather than failing
   requests. Raw bearer tokens are still only ever hashed in Postgres, exactly
   as before — Redis never stores a token.
+
+## WhatsApp Bot Integration (`whatsmeow`)
+
+Deuce can operate as a bot in one badminton WhatsApp group. It is a public
+announcement channel: the bot never links players to phone numbers, sends
+private messages, or processes private chats.
+
+### Design
+
+```text
+Configured WhatsApp group
+  -> whatsmeow adapter and group-only dispatcher
+  -> command adapter (public reads / admin mutations)
+  -> existing session and match services
+  -> PostgreSQL match transaction + whatsapp_group_outbox
+  -> background sender -> same WhatsApp group
+```
+
+The match service remains the single source of truth for court assignment,
+fair rotation, and ratings. When it creates a match, it writes exactly one
+public announcement to `whatsapp_group_outbox` in the *same transaction*.
+The sender claims jobs with `FOR UPDATE SKIP LOCKED`, so multiple backend
+instances cannot deliberately send the same job at once. Failed sends retry
+up to five times; a job stuck in `SENDING` is recoverable after five minutes.
+WhatsApp outages never block or roll back a match assignment.
+Before delivery, the worker verifies that the match still exists and the
+session is still active; pending stale announcements are cancelled.
+
+### Setup
+
+1. Run the database migrations.
+2. Create a dedicated WhatsApp account for the bot and add it to the club
+   group.
+3. Set these values in `.env`:
+
+   ```env
+   WHATSAPP_GROUP_JID=1234567890-1234567890@g.us
+   WHATSAPP_ADMIN_JIDS=628123456789@s.whatsapp.net,628987654321@s.whatsapp.net
+   WHATSAPP_CLUB_ID=<the Deuce club UUID>
+   ```
+
+   `WHATSAPP_GROUP_JID` is the WhatsApp group identifier, not its display
+   name. Admin JIDs use the `phone@s.whatsapp.net` form. Keep this list in
+   deployment configuration; it is the authorization boundary for changes.
+4. Start Deuce, authenticate to `/api/v1/whatsapp/qr`, and scan the returned
+   code using the bot account's WhatsApp **Linked devices** screen. This pairs
+   the bot account only; players never pair their accounts.
+5. Check `/api/v1/whatsapp/status`. whatsmeow stores bot credentials in the
+   separate PostgreSQL `whatsmeow` schema and reconnects after restarts.
+
+If any WhatsApp setting is missing, the bot is disabled and the normal Deuce
+API continues to work.
+
+### Group commands
+
+Everyone in the configured group may use `help`, `status`, `players`, and
+`matches`. Only JIDs in `WHATSAPP_ADMIN_JIDS` may use `start`, `stop`,
+`pause`, `resume`, `next`, `add <name> [M/F]`, `courts <n>`, or `cancel`. Private chats and messages in every other group
+are ignored. `start` creates a new automatic session when none is available.
+`next` uses the existing automatic matchmaker and posts its
+assignment to the same group.
+
+The bot account should be a normal group member. Messages contain player
+names, court, and format; do not use this mode if the group is not an
+appropriate place to share that information.
 
 ## Co-hosts
 

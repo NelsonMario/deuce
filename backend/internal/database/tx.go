@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"deuce/backend/internal/database/db"
@@ -26,6 +27,24 @@ func RunInTx(ctx context.Context, pool *pgxpool.Pool, fn func(q *db.Queries) err
 		return err
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+// RunInTxWithTx is RunInTx for the few workflows that need to add a durable
+// side effect (such as an outbox record) to the same database transaction.
+func RunInTxWithTx(ctx context.Context, pool *pgxpool.Pool, fn func(tx pgx.Tx, q *db.Queries) error) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := fn(tx, db.New(pool).WithTx(tx)); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}

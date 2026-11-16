@@ -1,20 +1,16 @@
 # deuce
 
-A casual badminton club app: create a club, share a join code, and run a
-live session where players queue up, get assigned to courts, and play
-matches — with fair rotation and rating-balanced doubles handled
-automatically.
-
-No accounts, no passwords. Players join a club/session with a code and get
-a lightweight session token for the rest of the session. Returning on the
-same device/browser is recognized automatically so ratings and history
-carry over, instead of resetting on every join.
+Deuce is a WhatsApp-group service for running casual badminton sessions.
+Configured group admins control the session; everyone in the group sees the
+public roster, matches, and status. Fair rotation and rating-balanced doubles
+remain automatic.
 
 ## What it does
 
-- **Clubs & sessions** — a host creates a club, opens a session, and is
-  added to that session as a waiting player automatically. Other players
-  join via a code or QR link.
+- **One public group** — the bot only processes its configured WhatsApp
+  group. It ignores private messages and other groups.
+- **Admin controls** — configured WhatsApp JIDs create/start sessions, add
+  players, configure courts, generate the next match, and finish a session.
 - **Fair rotation** — players queue up (waiting/playing/break) and are
   cycled through courts so nobody sits out unfairly long.
 - **Matchmaking** — matches are generated automatically (or built manually
@@ -23,14 +19,15 @@ carry over, instead of resetting on every join.
   mid-session, and turn fully-automatic court auto-fill on or off.
 - **Ratings** — an Elo-style rating updates after every finished match, so
   the app gets better at balancing matches the more a club plays.
-- **Co-hosts** — a club can have more than one host, so session management
-  isn't tied to a single device.
+- **WhatsApp group bot (`whatsmeow`)** — one public group receives match
+  assignments; anyone may read status while configured admin numbers manage
+  the session. There are no player phone links or private messages.
 
 ## Structure
 
 - `backend/` — Go API that owns all the club/session/matchmaking/rating
   logic. See `backend/README.md`.
-- `frontend/` — SvelteKit PWA that players and hosts actually use. See
+- `frontend/` — a lightweight informational landing page. See
   `frontend/README.md`.
 - `docker-compose.yml` — runs Postgres, migrations, and the backend
   together for local development.
@@ -38,16 +35,12 @@ carry over, instead of resetting on every join.
 ## Running it locally
 
 ```bash
-cp backend/.env.example .env   # then edit PLAYER_TOKEN_SECRET
+cp backend/.env.example .env   # set database and WhatsApp variables
 docker compose up --build      # Postgres + migrations + backend on :8080
-
-cd frontend
-npm install
-npm run dev                    # frontend on http://localhost:5173
 ```
 
-See the backend and frontend READMEs for configuration details, testing,
-and how the two talk to each other.
+See [the backend guide](backend/README.md) for WhatsApp setup, group commands,
+the data flow, and testing.
 
 ## Status
 

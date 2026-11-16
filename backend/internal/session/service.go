@@ -272,25 +272,22 @@ func (s *Service) resolvePlayer(ctx context.Context, deviceID string, clubID uui
 	return p, isNewJoin, nil
 }
 
-type GuestInput struct {
+type AddPlayerInput struct {
 	DisplayName string
 	Gender      player.Gender
 }
 
-type RegisterGuestsInput struct {
+type AddPlayersInput struct {
 	SessionID uuid.UUID
-	Guests    []GuestInput
+	Players   []AddPlayerInput
 }
 
-// RegisterGuests adds players the host registered on behalf of people who
-// didn't join via the invite link. Guests are ordinary player identities
-// flagged is_guest with a normal starting rating of 1000. Re-registering a
-// name already present in the club reuses that player (case-insensitive) and
-// refreshes their profile, so a returning guest keeps one row instead of
-// accumulating duplicates.
-func (s *Service) RegisterGuests(ctx context.Context, in RegisterGuestsInput) ([]Player, error) {
-	if len(in.Guests) == 0 {
-		return nil, apperr.Validation("at least one guest is required")
+// AddPlayers adds named players to a session. Re-registering a name
+// already present in the club reuses that player (case-insensitive), so
+// recurring members retain their rating and history.
+func (s *Service) AddPlayers(ctx context.Context, in AddPlayersInput) ([]Player, error) {
+	if len(in.Players) == 0 {
+		return nil, apperr.Validation("at least one player is required")
 	}
 	sess, err := s.GetSession(ctx, in.SessionID)
 	if err != nil {
@@ -300,25 +297,25 @@ func (s *Service) RegisterGuests(ctx context.Context, in RegisterGuestsInput) ([
 		return nil, apperr.InvalidState("session has finished")
 	}
 
-	type guest struct {
+	type namedPlayer struct {
 		name   string
 		gender player.Gender
 	}
-	clean := make([]guest, 0, len(in.Guests))
-	for _, g := range in.Guests {
+	clean := make([]namedPlayer, 0, len(in.Players))
+	for _, g := range in.Players {
 		name := strings.TrimSpace(g.DisplayName)
 		if name == "" {
-			return nil, apperr.Validation("guest name cannot be empty")
+			return nil, apperr.Validation("player name cannot be empty")
 		}
 		if !g.Gender.Valid() {
 			return nil, apperr.Validation("invalid gender")
 		}
-		clean = append(clean, guest{name: name, gender: g.Gender})
+		clean = append(clean, namedPlayer{name: name, gender: g.Gender})
 	}
 
 	results := make([]Player, 0, len(clean))
 	for _, g := range clean {
-		p, err := s.resolveGuestPlayer(ctx, sess.ClubID, g.name, g.gender)
+		p, err := s.resolveNamedPlayer(ctx, sess.ClubID, g.name, g.gender)
 		if err != nil {
 			return nil, err
 		}
@@ -328,15 +325,13 @@ func (s *Service) RegisterGuests(ctx context.Context, in RegisterGuestsInput) ([
 		}
 		results = append(results, sp)
 	}
-	s.logger.Info("guests_registered", "session_id", in.SessionID, "count", len(results))
+	s.logger.Info("players_added", "session_id", in.SessionID, "count", len(results))
 	return results, nil
 }
 
-// resolveGuestPlayer returns an existing club member with the same display
-// name (case-insensitive) or creates a new guest identity. Reusing a member
-// refreshes their profile (and updated_at) so a regularly-returning guest
-// never ages into the cron cleanup window.
-func (s *Service) resolveGuestPlayer(ctx context.Context, clubID uuid.UUID, name string, gender player.Gender) (player.Player, error) {
+// resolveNamedPlayer returns an existing club member with the same display
+// name (case-insensitive) or creates a normal player identity.
+func (s *Service) resolveNamedPlayer(ctx context.Context, clubID uuid.UUID, name string, gender player.Gender) (player.Player, error) {
 	if existing, err := s.clubs.FindMemberPlayerByName(ctx, clubID, name); err == nil {
 		updated, err := s.players.UpdateProfile(ctx, existing.ID, name, gender)
 		if err != nil {
@@ -347,7 +342,7 @@ func (s *Service) resolveGuestPlayer(ctx context.Context, clubID uuid.UUID, name
 		return player.Player{}, apperr.Internal(err)
 	}
 
-	p, err := s.players.CreateGuest(ctx, name, gender)
+	p, err := s.players.Create(ctx, name, gender)
 	if err != nil {
 		return player.Player{}, apperr.Internal(err)
 	}
@@ -374,6 +369,13 @@ func (s *Service) SetPlayerStatus(ctx context.Context, sessionPlayerID uuid.UUID
 	sp, err := s.GetSessionPlayer(ctx, sessionPlayerID)
 	if err != nil {
 		return Player{}, err
+	}
+	sess, err := s.GetSession(ctx, sp.SessionID)
+	if err != nil {
+		return Player{}, err
+	}
+	if sess.Status == StatusFinished {
+		return Player{}, apperr.InvalidState("session has finished")
 	}
 	if !sp.Status.CanTransitionTo(to) {
 		return Player{}, apperr.InvalidState("invalid session player state transition: " + string(sp.Status) + " -> " + string(to))
