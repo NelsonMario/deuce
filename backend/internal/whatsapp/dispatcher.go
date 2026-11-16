@@ -15,8 +15,13 @@ import (
 // CommandHandler is deliberately small: it keeps WhatsApp transport details
 // separate from the existing Deuce application services.
 type CommandHandler interface {
-	Handle(ctx context.Context, sender types.JID, command string) (string, error)
+	Handle(ctx context.Context, sender Sender, command string) (string, error)
 }
+
+// maxCommandAge drops messages older than this. After a reconnect WhatsApp
+// replays the offline backlog; re-running an old `next` or `stop` would act
+// on a session state the admin never saw.
+const maxCommandAge = 2 * time.Minute
 
 type Dispatcher struct {
 	client  Client
@@ -40,6 +45,13 @@ func (d *Dispatcher) HandleEvent(evt interface{}) {
 	if !ok || m.Message == nil || m.Info.Chat.ToNonAD() != d.group.ToNonAD() {
 		return
 	}
+	// The bot's own replies must never be read back as commands.
+	if m.Info.IsFromMe {
+		return
+	}
+	if !m.Info.Timestamp.IsZero() && time.Since(m.Info.Timestamp) > maxCommandAge {
+		return
+	}
 	if d.isDuplicate(m.Info.ID) {
 		return
 	}
@@ -53,7 +65,8 @@ func (d *Dispatcher) HandleEvent(evt interface{}) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		reply, err := d.handler.Handle(ctx, m.Info.Sender.ToNonAD(), text)
+		sender := Sender{JID: m.Info.Sender.ToNonAD(), Alt: m.Info.SenderAlt.ToNonAD()}
+		reply, err := d.handler.Handle(ctx, sender, text)
 		if err != nil {
 			d.logger.Warn("whatsapp_command_failed", "error", err)
 			reply = "⚠️ Command could not be completed."

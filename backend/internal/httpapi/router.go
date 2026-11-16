@@ -83,11 +83,8 @@ func NewApp(d Deps) *fiber.App {
 	matches.Get("/:matchId", requireAuth, d.Handlers.GetMatch)
 	matches.Post("/:matchId/start", requireAuth, d.Handlers.StartMatch)
 	matches.Post("/:matchId/finish", requireAuth, d.Handlers.FinishMatch)
-<<<<<<< Updated upstream
-=======
 	matches.Post("/:matchId/cancel", requireAuth, d.Handlers.CancelMatch)
 	matches.Put("/:matchId/roster", requireAuth, d.Handlers.UpdateMatchRoster)
->>>>>>> Stashed changes
 
 	whatsapp := v1.Group("/whatsapp")
 	whatsapp.Get("/status", requireAuth, d.Handlers.WhatsApp.GetStatus)

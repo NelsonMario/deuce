@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -15,12 +16,23 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// qrValidity is how long a pairing code is offered after WhatsApp issued it.
+// WhatsApp rotates codes roughly every 20s (60s for the first one), so an
+// older code has almost certainly been replaced.
+const qrValidity = 60 * time.Second
+
 type WhatsmeowClient struct {
 	client   *whatsmeow.Client
 	logger   *slog.Logger
 	statusMu sync.RWMutex
 	status   ConnectionStatus
-	qrChan   chan string
+
+	// qrMu guards the pairing state. Only the latest code is kept: a queue
+	// of codes would hand out expired ones.
+	qrMu    sync.Mutex
+	qrCode  string
+	qrAt    time.Time
+	pairing bool
 }
 
 func NewWhatsmeowClient(deviceStore *store.Device, logger *slog.Logger) *WhatsmeowClient {
@@ -31,7 +43,6 @@ func NewWhatsmeowClient(deviceStore *store.Device, logger *slog.Logger) *Whatsme
 		client: cli,
 		logger: logger,
 		status: StatusDisconnected,
-		qrChan: make(chan string, 10),
 	}
 
 	cli.AddEventHandler(wc.handleInternalEvents)
@@ -66,42 +77,11 @@ func (w *WhatsmeowClient) Connect() error {
 	w.setStatus(StatusConnecting)
 
 	if w.client.Store.ID == nil {
-		// Device not paired yet: QR code flow needed
-		w.setStatus(StatusPairingRequired)
-		qrChan, err := w.client.GetQRChannel(context.Background())
-		if err != nil {
-			w.setStatus(StatusDisconnected)
-			return fmt.Errorf("get qr channel: %w", err)
-		}
-
-		err = w.client.Connect()
-		if err != nil {
-			w.setStatus(StatusDisconnected)
-			return fmt.Errorf("connect client: %w", err)
-		}
-
-		go func() {
-			for evt := range qrChan {
-				switch evt.Event {
-				case "code":
-					w.logger.Info("whatsmeow_qr_code_received")
-					select {
-					case w.qrChan <- evt.Code:
-					default:
-					}
-				case "success":
-					w.logger.Info("whatsmeow_qr_pair_success")
-					w.setStatus(StatusConnected)
-				case "timeout":
-					w.logger.Warn("whatsmeow_qr_timeout")
-					w.setStatus(StatusPairingRequired)
-				}
-			}
-		}()
-		return nil
+		return w.startPairing()
 	}
 
-	// Already paired: connect directly
+	// Already paired: connect directly. whatsmeow reconnects by itself after
+	// a connection has been established once.
 	if err := w.client.Connect(); err != nil {
 		w.setStatus(StatusDisconnected)
 		return fmt.Errorf("connect client: %w", err)
@@ -111,13 +91,85 @@ func (w *WhatsmeowClient) Connect() error {
 	return nil
 }
 
+// startPairing opens a QR pairing flow for an unpaired device. When the flow
+// times out (nobody scanned), the connection is closed and a later
+// CurrentQR call starts a new flow, so pairing never needs a restart.
+func (w *WhatsmeowClient) startPairing() error {
+	w.qrMu.Lock()
+	if w.pairing {
+		w.qrMu.Unlock()
+		return nil
+	}
+	w.pairing = true
+	w.qrMu.Unlock()
+
+	done := func() {
+		w.qrMu.Lock()
+		w.pairing = false
+		w.qrCode = ""
+		w.qrMu.Unlock()
+	}
+
+	w.setStatus(StatusPairingRequired)
+	qrChan, err := w.client.GetQRChannel(context.Background())
+	if err != nil {
+		done()
+		w.setStatus(StatusDisconnected)
+		return fmt.Errorf("get qr channel: %w", err)
+	}
+	if err := w.client.Connect(); err != nil {
+		done()
+		w.setStatus(StatusDisconnected)
+		return fmt.Errorf("connect client: %w", err)
+	}
+
+	go func() {
+		defer done()
+		for evt := range qrChan {
+			switch evt.Event {
+			case "code":
+				w.logger.Info("whatsmeow_qr_code_received")
+				w.qrMu.Lock()
+				w.qrCode, w.qrAt = evt.Code, time.Now()
+				w.qrMu.Unlock()
+			case "success":
+				w.logger.Info("whatsmeow_qr_pair_success")
+				w.setStatus(StatusConnected)
+			default:
+				// "timeout" or a pairing error: the channel closes next.
+				w.logger.Warn("whatsmeow_qr_pairing_ended", "event", evt.Event)
+				w.setStatus(StatusPairingRequired)
+				w.client.Disconnect()
+			}
+		}
+	}()
+	return nil
+}
+
 func (w *WhatsmeowClient) Disconnect() {
 	w.client.Disconnect()
 	w.setStatus(StatusDisconnected)
 }
 
-func (w *WhatsmeowClient) GetQRChannel(ctx context.Context) (<-chan string, error) {
-	return w.qrChan, nil
+// CurrentQR returns the latest unexpired pairing code. If the device is not
+// paired and no pairing flow is running (e.g. the previous one timed out),
+// it starts a new flow; the code is then available on the next call.
+func (w *WhatsmeowClient) CurrentQR() (string, bool) {
+	w.qrMu.Lock()
+	code, at, pairing := w.qrCode, w.qrAt, w.pairing
+	w.qrMu.Unlock()
+
+	if code != "" && time.Since(at) < qrValidity {
+		return code, true
+	}
+	if w.client.Store.ID == nil && !pairing {
+		go func() {
+			if err := w.startPairing(); err != nil {
+				w.logger.Warn("whatsmeow_pairing_restart_failed", "error", err)
+			}
+		}()
+	}
+	return "", false
 }
 
 func (w *WhatsmeowClient) SendMessage(ctx context.Context, recipient types.JID, text string) error {

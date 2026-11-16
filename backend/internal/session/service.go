@@ -323,6 +323,16 @@ func (s *Service) AddPlayers(ctx context.Context, in AddPlayersInput) ([]Player,
 		if err != nil {
 			return nil, apperr.Internal(err)
 		}
+		// AddSessionPlayer keeps the existing row for someone already in the
+		// session. Explicitly adding a player who is on BREAK or has left
+		// (ENDED) brings them back into the queue; this is a deliberate
+		// host action, so it may revive an ENDED player.
+		if sp.Status == PlayerBreak || sp.Status == PlayerEnded {
+			sp, err = s.repo.SetSessionPlayerStatus(ctx, sp.ID, PlayerWaiting)
+			if err != nil {
+				return nil, apperr.Internal(err)
+			}
+		}
 		results = append(results, sp)
 	}
 	s.logger.Info("players_added", "session_id", in.SessionID, "count", len(results))

@@ -80,8 +80,6 @@ func (q *Queries) CreateMatch(ctx context.Context, arg CreateMatchParams) (Match
 	return i, err
 }
 
-<<<<<<< Updated upstream
-=======
 const deleteMatch = `-- name: DeleteMatch :exec
 DELETE FROM matches WHERE id = $1
 `
@@ -105,7 +103,6 @@ func (q *Queries) DeleteMatchPlayer(ctx context.Context, arg DeleteMatchPlayerPa
 	return err
 }
 
->>>>>>> Stashed changes
 const finishMatch = `-- name: FinishMatch :one
 UPDATE matches
 SET status = 'FINISHED', ended_at = now(), score_a = $2, score_b = $3, winner = $4, updated_at = now()
@@ -355,6 +352,34 @@ func (q *Queries) StartMatch(ctx context.Context, id uuid.UUID) (Match, error) {
 		&i.Winner,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateMatchPlayerTeam = `-- name: UpdateMatchPlayerTeam :one
+UPDATE match_players
+SET team = $1
+WHERE match_id = $2 AND player_id = $3::uuid
+RETURNING id, match_id, player_id, team, rating_before, rating_after, rating_change
+`
+
+type UpdateMatchPlayerTeamParams struct {
+	Team     MatchTeam `json:"team"`
+	MatchID  uuid.UUID `json:"match_id"`
+	PlayerID uuid.UUID `json:"player_id"`
+}
+
+func (q *Queries) UpdateMatchPlayerTeam(ctx context.Context, arg UpdateMatchPlayerTeamParams) (MatchPlayer, error) {
+	row := q.db.QueryRow(ctx, updateMatchPlayerTeam, arg.Team, arg.MatchID, arg.PlayerID)
+	var i MatchPlayer
+	err := row.Scan(
+		&i.ID,
+		&i.MatchID,
+		&i.PlayerID,
+		&i.Team,
+		&i.RatingBefore,
+		&i.RatingAfter,
+		&i.RatingChange,
 	)
 	return i, err
 }

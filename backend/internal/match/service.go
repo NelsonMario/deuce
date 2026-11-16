@@ -590,8 +590,6 @@ func mustSessionPlayerIDs(ctx context.Context, q *db.Queries, sessionID uuid.UUI
 	return out
 }
 
-<<<<<<< Updated upstream
-=======
 type UpdateRosterInput struct {
 	MatchID               uuid.UUID
 	TeamA                 [2]uuid.UUID
@@ -643,8 +641,15 @@ func (s *Service) UpdateRoster(ctx context.Context, in UpdateRosterInput) (Match
 			}
 			genders[id] = matchmaking.Gender(p.Gender)
 		}
-		if err := validateFormatGenders(Format(m.Format), [2]matchmaking.Gender{genders[in.TeamA[0]], genders[in.TeamA[1]]}, [2]matchmaking.Gender{genders[in.TeamB[0]], genders[in.TeamB[1]]}); err != nil {
-			return err
+		// Automatic generation treats MIXED_DOUBLES as open to any gender
+		// mix (see matchmaking.eligibleForFormat), so auto-generated "mixed"
+		// matches may not have one man and one woman per team. Holding a
+		// roster edit to the strict rule would make those matches
+		// uneditable; only the single-gender formats are enforced here.
+		if Format(m.Format) != MixedDoubles {
+			if err := validateFormatGenders(Format(m.Format), [2]matchmaking.Gender{genders[in.TeamA[0]], genders[in.TeamA[1]]}, [2]matchmaking.Gender{genders[in.TeamB[0]], genders[in.TeamB[1]]}); err != nil {
+				return err
+			}
 		}
 
 		// Handle removed players
@@ -748,7 +753,6 @@ func (s *Service) UpdateRoster(ctx context.Context, in UpdateRosterInput) (Match
 	return result, nil
 }
 
->>>>>>> Stashed changes
 // ============================================================
 // Start / Finish
 // ============================================================

@@ -39,7 +39,13 @@ func NewTestPool(t *testing.T) *pgxpool.Pool {
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
 		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second),
+			// The log line alone is not enough on Docker hosts with a lagging
+			// port forward (e.g. Rancher Desktop): also wait until the mapped
+			// port accepts connections from the host.
+			wait.ForAll(
+				wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+				wait.ForListeningPort("5432/tcp"),
+			).WithDeadline(60*time.Second),
 		),
 	)
 	if err != nil {

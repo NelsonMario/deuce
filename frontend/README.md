@@ -28,10 +28,15 @@ they only need to be in the group.
 | Who | Can do |
 |---|---|
 | Everyone in the group | Read the session: `help`, `status`, `players`, `matches` |
-| Admins (phone numbers listed in `WHATSAPP_ADMIN_JIDS`) | Everything above, plus run the session: `start`, `stop`, `pause`, `resume`, `next`, `add`, `courts`, `cancel` |
+| Admins (phone numbers listed in `WHATSAPP_ADMIN_JIDS`) | Everything above, plus run the session: `start`, `stop`, `pause`, `resume`, `next`, `add`, `remove`, `courts`, `done`, `cancel` |
 
 The bot ignores private chats and every other group. If a non-admin types an
 admin command, the bot replies `⛔ This command is for group admins only.`
+
+Normal conversation is safe. A command without arguments must be the whole
+message, so `next` assigns a match but "next week?" does nothing, and
+messages that aren't commands get no reply. Commands sent while the bot was
+offline (older than two minutes) are skipped.
 
 ### Running a session (admin)
 
@@ -39,29 +44,36 @@ Type these as plain messages in the group:
 
 1. **`start`**: creates a new automatic session if none exists, then starts
    it. If a session is already running it just says so.
-2. **`courts 3`**: sets the number of courts (1–20). This only adds courts,
-   so running `courts 2` after `courts 3` leaves 3 courts.
+2. **`courts 3`**: sets the number of courts (1–20). Courts can only be
+   added, not removed.
 3. **`add Alice F`**, **`add Bob M`**, …: adds a player to the waiting queue.
    The gender suffix `M`/`F` is optional and defaults to `M`. Names can have
-   spaces: `add Mary Jane F`.
+   spaces: `add Mary Jane F`. A returning player keeps their rating.
 4. Matches get assigned:
    - **Automatically**: auto-fill is on by default and keeps filling every
      free court using ratings and waiting time.
-   - **On demand**: **`next`** assigns a mixed-doubles match to the first
-     free court right away.
+   - **On demand**: **`next`** assigns a match to the first free court right
+     away.
 
    Either way, the bot announces the lineup (players, court, format) in the
    group.
-5. **`pause`** / **`resume`**: turns auto-fill off or on, for example when
+5. **`done 1 21-15`**: when the game on Court 1 ends, report the score
+   (Team A first, as in the announcement; `done 1 21 15` also works). Ratings
+   update, the four players go back to the queue, and the court is free for
+   the next match. Ties are rejected.
+6. **`remove Bob`**: Bob went home, so take him out of the rotation. Players
+   on court must finish first. `add Bob` brings him back.
+7. **`pause`** / **`resume`**: turns auto-fill off or on, for example when
    you want to assign courts one at a time with `next`.
-6. **`cancel`**: cancels an active (created or in-progress) match.
-7. **`stop`**: ends the session. Pending announcements for it are dropped.
+8. **`cancel`**: cancels the latest unfinished match; its players go back to
+   the queue without a result.
+9. **`stop`**: ends the session. Pending announcements for it are dropped.
 
 ### Checking in (everyone)
 
 - **`status`**: session state, number of courts, players, playing, waiting
-- **`players`**: roster with each player's status (waiting / playing / break)
-- **`matches`**: matches in this session and their status
+- **`players`**: roster with each player's status (waiting / playing / break / ended)
+- **`matches`**: each match's court, status, and score
 - **`help`**: the commands you can use (admins also see admin commands)
 
 ### Example
@@ -72,13 +84,16 @@ Bot:    🏸 Session created and started.
 Admin:  courts 2
 Bot:    ✅ 2 court(s) configured.
 Admin:  add Alice F
-Bot:    ✅ Player added to the waiting queue.
+Bot:    ✅ Alice added to the waiting queue.
 …
-Admin:  next
-Bot:    🏸 Match assigned. The lineup will be announced here.
 Bot:    (lineup announcement for Court 1)
-Anyone: status
-Bot:    🏸 Session Status — Status: ACTIVE, Courts: 2, Players: 8, Playing: 4, Waiting: 4
+Admin:  done 1 21-15
+Bot:    ✅ Court 1 finished 21–15. Ratings updated and the court is free.
+Bot:    (next lineup announcement for Court 1)
+Anyone: matches
+Bot:    🏸 Matches
+        • Court 1 — CREATED
+        • Court 1 — FINISHED (21–15)
 ```
 
 ### Privacy note
@@ -103,7 +118,9 @@ You do this once per club, on the backend:
    ```
 
 4. Start the backend, call `GET /api/v1/whatsapp/qr` (authenticated), and scan
-   the code from the bot phone under **WhatsApp → Linked devices**.
+   the code from the bot phone under **WhatsApp → Linked devices**. If it
+   returns `WAITING`, a fresh code is being generated; call it again after a
+   few seconds.
 5. Confirm with `GET /api/v1/whatsapp/status`. The pairing is stored in
    Postgres and survives restarts.
 

@@ -114,9 +114,25 @@ func main() {
 			} else {
 				whatsappService = whatsapp.NewService(client, repo, dispatcher, sessionRepo, matchReadRepo, logger)
 				matchService.SetAnnouncementOutbox(repo)
+				// whatsmeow only auto-reconnects after a connection has been
+				// established once, so retry the initial connect with backoff
+				// (e.g. the network is not ready yet at boot).
 				go func() {
-					if err := whatsappService.Connect(); err != nil {
-						logger.Warn("whatsapp_connect_failed", "error", err)
+					delay := 5 * time.Second
+					for {
+						err := whatsappService.Connect()
+						if err == nil {
+							return
+						}
+						logger.Warn("whatsapp_connect_failed", "error", err, "retry_in", delay)
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(delay):
+						}
+						if delay < time.Minute {
+							delay *= 2
+						}
 					}
 				}()
 				go whatsappService.Run(ctx)

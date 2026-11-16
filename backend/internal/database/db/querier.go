@@ -38,19 +38,8 @@ type Querier interface {
 	CreatePlayerRating(ctx context.Context, arg CreatePlayerRatingParams) (PlayerRating, error)
 	CreatePlayerToken(ctx context.Context, arg CreatePlayerTokenParams) (PlayerToken, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
-<<<<<<< Updated upstream
-	// match_players.player_id and session_players.player_id both ON DELETE SET
-	// NULL (see migration 000001), so deleting the guest here preserves the
-	// match/session history it took part in (score, team, rating deltas,
-	// session roster slot) and only clears the link back to its identity.
-	// rating_history, player_ratings, club_members and player_tokens still
-	// cascade away — those are the guest's own state/ledger, not match/session
-	// history, and the guest is gone anyway.
-	DeleteStaleGuests(ctx context.Context, cutoff pgtype.Timestamptz) ([]uuid.UUID, error)
-=======
 	DeleteMatch(ctx context.Context, id uuid.UUID) error
 	DeleteMatchPlayer(ctx context.Context, arg DeleteMatchPlayerParams) error
->>>>>>> Stashed changes
 	EndSession(ctx context.Context, id uuid.UUID) (Session, error)
 	FinishMatch(ctx context.Context, arg FinishMatchParams) (Match, error)
 	GetClubByID(ctx context.Context, id uuid.UUID) (Club, error)
@@ -103,6 +92,7 @@ type Querier interface {
 	StartMatch(ctx context.Context, id uuid.UUID) (Match, error)
 	StartSession(ctx context.Context, id uuid.UUID) (Session, error)
 	UpdateClubMemberRole(ctx context.Context, arg UpdateClubMemberRoleParams) (ClubMember, error)
+	UpdateMatchPlayerTeam(ctx context.Context, arg UpdateMatchPlayerTeamParams) (MatchPlayer, error)
 	UpdatePlayerProfile(ctx context.Context, arg UpdatePlayerProfileParams) (Player, error)
 	UpdatePlayerRating(ctx context.Context, arg UpdatePlayerRatingParams) (PlayerRating, error)
 	UpdateSessionAssignmentMode(ctx context.Context, arg UpdateSessionAssignmentModeParams) (Session, error)

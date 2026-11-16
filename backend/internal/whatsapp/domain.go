@@ -55,7 +55,8 @@ type Client interface {
 	IsConnected() bool
 	IsLoggedIn() bool
 	GetStatus() ConnectionStatus
-	GetQRChannel(ctx context.Context) (<-chan string, error)
+	// CurrentQR returns the latest unexpired pairing code, if any.
+	CurrentQR() (code string, ok bool)
 	SendMessage(ctx context.Context, recipient types.JID, text string) error
 	AddEventHandler(handler func(evt interface{}))
 }

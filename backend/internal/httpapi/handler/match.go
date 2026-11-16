@@ -4,6 +4,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
+	"deuce/backend/internal/apperr"
+	"deuce/backend/internal/database/db"
 	"deuce/backend/internal/match"
 )
 
@@ -294,8 +296,6 @@ func (h *Handlers) FinishMatch(c *fiber.Ctx) error {
 	}
 	return c.JSON(toMatchDTO(m))
 }
-<<<<<<< Updated upstream
-=======
 
 type UpdateMatchRosterRequest struct {
 	TeamA                 [2]string         `json:"team_a" validate:"required,len=2,dive,uuid"`
@@ -322,8 +322,17 @@ func (h *Handlers) UpdateMatchRoster(c *fiber.Ctx) error {
 	removedStatuses := map[uuid.UUID]db.SessionPlayerStatus{}
 	for pidStr, statusStr := range req.RemovedPlayerStatuses {
 		pid, err := uuid.Parse(pidStr)
-		if err == nil {
-			removedStatuses[pid] = db.SessionPlayerStatus(statusStr)
+		if err != nil {
+			return HandleError(c, apperr.Validation("removed_player_statuses keys must be player UUIDs"))
+		}
+		// PLAYING is backend-controlled; anything outside the enum would
+		// otherwise reach Postgres and surface as a 500.
+		status := db.SessionPlayerStatus(statusStr)
+		switch status {
+		case db.SessionPlayerStatusWAITING, db.SessionPlayerStatusBREAK, db.SessionPlayerStatusENDED:
+			removedStatuses[pid] = status
+		default:
+			return HandleError(c, apperr.Validation("removed_player_statuses values must be WAITING, BREAK, or ENDED"))
 		}
 	}
 
@@ -352,4 +361,3 @@ func (h *Handlers) CancelMatch(c *fiber.Ctx) error {
 	}
 	return c.JSON(fiber.Map{"status": "cancelled", "match_id": matchID.String()})
 }
->>>>>>> Stashed changes

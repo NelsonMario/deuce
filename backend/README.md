@@ -283,7 +283,10 @@ session is still active; pending stale announcements are cancelled.
    deployment configuration; it is the authorization boundary for changes.
 4. Start Deuce, authenticate to `/api/v1/whatsapp/qr`, and scan the returned
    code using the bot account's WhatsApp **Linked devices** screen. This pairs
-   the bot account only; players never pair their accounts.
+   the bot account only; players never pair their accounts. The endpoint
+   returns `READY` with the latest code, `WAITING` while a code is being
+   generated (retry in a few seconds; a timed-out pairing restarts
+   automatically), or `PAIRED` once linked.
 5. Check `/api/v1/whatsapp/status`. whatsmeow stores bot credentials in the
    separate PostgreSQL `whatsmeow` schema and reconnects after restarts.
 
@@ -294,10 +297,26 @@ API continues to work.
 
 Everyone in the configured group may use `help`, `status`, `players`, and
 `matches`. Only JIDs in `WHATSAPP_ADMIN_JIDS` may use `start`, `stop`,
-`pause`, `resume`, `next`, `add <name> [M/F]`, `courts <n>`, or `cancel`. Private chats and messages in every other group
-are ignored. `start` creates a new automatic session when none is available.
-`next` uses the existing automatic matchmaker and posts its
-assignment to the same group.
+`pause`, `resume`, `next`, `add <name> [M/F]`, `remove <name>`,
+`courts <n>`, `done <court> <a>-<b>`, or `cancel`. Private chats and messages
+in every other group are ignored.
+
+- Commands without arguments must be the whole message (`next`, not
+  `next week?`), and messages that are not commands get no reply, so normal
+  group conversation is never mistaken for a command.
+- Admins are matched on both the sender JID and its alternate address, so
+  groups that address members by LID (`…@lid`) still recognize admins listed
+  by phone number.
+- The bot ignores its own messages and anything older than two minutes
+  (the offline backlog WhatsApp replays after a reconnect).
+- `start` creates a new automatic session when none is available.
+- `next` uses the existing automatic matchmaker and posts its assignment to
+  the same group.
+- `done <court> <a>-<b>` starts the match on that court if needed, finishes
+  it with the score (ratings update), and frees the court for the next
+  assignment.
+- `remove <name>` takes a waiting player out of the rotation; `add` brings a
+  removed or on-break player back.
 
 The bot account should be a normal group member. Messages contain player
 names, court, and format; do not use this mode if the group is not an
