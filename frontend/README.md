@@ -1,8 +1,9 @@
 # Deuce landing page
 
-This SvelteKit site introduces Deuce's one-group WhatsApp bot. The live
-product is operated in WhatsApp, so this site intentionally has no player
-login, club dashboard, queue, or match-management UI.
+This SvelteKit site is the documentation page for the Deuce WhatsApp bot:
+configuration, setup, admins and co-hosts, commands, grades and
+troubleshooting (`src/routes/+page.svelte`). The bot itself is operated in
+WhatsApp, so the site has no login, dashboard or match-management UI.
 
 ## Development
 
