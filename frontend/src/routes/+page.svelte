@@ -51,13 +51,16 @@ Mary Jane F C`;
 
 	const sessionSnippet = `start
 courts 2
-in Alice Bob Cara Dan Eve
-done 1 21-15
-stop`;
+in Alice, Bob, Cara, Dan, Eve
+done 1 21-15            # Court 1 result (Team A score first)
+set Eve Alice           # swap: Eve plays, Alice waits
+cancel 2                # undo match on Court 2 (or: cancel)
+stop`; 
 
 	const aiSnippet = `chat start session with 2 courts
 chat check in Alice, Bob, and Dan
 chat Alice and Bob won 21-17 on court 1
+chat swap Eve with Alice on court
 chat who is waiting right now?`;
 
 	const recapSnippet = `📊 Session recap — 16 Nov · 8 matches
@@ -88,9 +91,9 @@ CASCADE;`;
 		{ area: "", cmd: "out <name>", desc: "Take a player out of the rotation" },
 		{ area: "Courts", cmd: "courts <n>", desc: "Set the number of courts (\"courts\" alone lists them)" },
 		{ area: "", cmd: "next", desc: "Fill the next free court automatically" },
-		{ area: "", cmd: "done <court> <a>-<b>", desc: "Record a result (Team A first) and free the court" },
-		{ area: "", cmd: "cancel [court]", desc: "Cancel an unfinished match (latest if omitted)" },
-		{ area: "", cmd: "set <name1> <name2>", desc: "Swap/move players between court and waiting bench" },
+		{ area: "", cmd: "done <court> <a>-<b>", desc: "Record result & free court (e.g. done 1 21-15)" },
+		{ area: "", cmd: "cancel [court]", desc: "Undo a match — latest, or a court (e.g. cancel 2)" },
+		{ area: "", cmd: "set <name1> <name2>", desc: "Swap players: bench↔court or court↔court (e.g. set Alice Bob)" },
 		{ area: "Host", cmd: "auto | manual", desc: "Bot fills courts / you pick lineups" },
 		{ area: "", cmd: "suggest <4 names>", desc: "Show the most balanced split" },
 		{ area: "", cmd: "assign <court> A B vs C D", desc: "Put an exact lineup on a court" },
@@ -301,41 +304,26 @@ CASCADE;`;
 			<li><code>stop</code> ends the session and posts the recap in the admin group.</li>
 		</ol>
 		<p>
-			To pick matches yourself: <code>manual</code>, then <code>suggest Alice Bob Cara Dan</code>
-			for a balanced split and <code>assign 1 Alice Bob vs Cara Dan</code> to place it.
-			<code>auto</code> switches back.
+			Need control? <code>manual</code> lets you pick lineups (<code>auto</code> switches back).
+			Use <code>suggest Alice Bob Cara Dan</code> for a balanced split, <code>assign 1 Alice Bob vs Cara Dan</code> to set it,
+			<code>cancel</code>/<code>cancel 2</code> to undo, and <code>set Alice Bob</code> to swap players (bench↔court).
 		</p>
 	</section>
 
 	<section id="ai">
-		<h2>AI Natural Language (Gemini)</h2>
+		<h2>AI chat (optional)</h2>
 		<p>
-			Instead of memorizing exact command syntax, hosts can manage sessions using natural human language
-			with the <code>chat</code> prefix (or a custom prefix like <code>!</code>):
+			Don’t want to memorize commands? Start your message with <code>chat</code> (or your custom prefix) and just say it naturally:
 		</p>
 		<pre><code>{aiSnippet}</code></pre>
-		<h3>Features</h3>
 		<ul>
-			<li>
-				<strong>Prefix quota protection:</strong> Only messages starting with <code>chat</code> (or your custom prefix)
-				trigger the Gemini API. Casual chatter between co-hosts in the admin group is ignored, preserving your free-tier quota (15 RPM).
-			</li>
-			<li>
-				<strong>Fuzzy name & typo resolution:</strong> If a host types a nickname or typo (e.g. <code>nels</code> or <code>nelsie</code> for registered member <code>Nelson</code>), Gemini automatically resolves it to the correct member in the roster.
-			</li>
-			<li>
-				<strong>Automatic court detection:</strong> Shorthand statements like <em>"Alice and Bob won 21-17"</em> automatically find which court Alice and Bob are playing on and generate <code>done &lt;court&gt; 21-17</code>.
-			</li>
-			<li>
-				<strong>Multi-action execution:</strong> Messages like <em>"start session with 2 courts and check in Alice and Bob"</em> automatically execute <code>start</code>, <code>courts 2</code>, and <code>in Alice Bob</code> sequentially.
-			</li>
-			<li>
-				<strong>Ambiguity safety:</strong> If an abbreviated name matches multiple members (e.g. "Nel" when both "Nelson" and "Nellie" exist), the bot will ask for clarification rather than guessing.
-			</li>
-			<li>
-				<strong>Multilingual:</strong> Supports English, Indonesian (e.g. <em>"lapangan 1 beres 21-18"</em>), and more.
-			</li>
+			<li><strong>Turns words into commands:</strong> e.g. scores, check-ins, swaps, multiple actions at once.</li>
+			<li><strong>Understands context:</strong> it sees the live session (courts/lineups, waiting list, member names), so it can find the right court and fix typos/nicknames.</li>
+			<li><strong>Safe when unsure:</strong> if a name is ambiguous, it asks instead of guessing.</li>
+			<li><strong>How it works:</strong> Gemini suggests bot commands; Deuce runs them through the same command logic (no direct API/tool/MCP access).</li>
+			<li><strong>Quota-friendly:</strong> only <code>chat</code>/<code>!</code> messages call Gemini.</li>
 		</ul>
+		<p class="note">Note: it’s tuned for running badminton sessions, but if you ask something unrelated it may still reply in text (without running commands).</p>
 	</section>
 
 	<section id="commands">
@@ -532,5 +520,10 @@ CASCADE;`;
 
 	li {
 		margin: 4px 0;
+	}
+
+	.note {
+		color: var(--text-dim);
+		font-size: 0.95rem;
 	}
 </style>

@@ -126,13 +126,14 @@ Available Deuce bot commands:
 7. "next" - Automatically fill the next free court with waiting players.
 8. "done <court> <scoreA>-<scoreB>" - Record the finished score on a court (e.g. "done 1 21-15").
    - Team A is listed first on the court. Winning team has the higher score.
-9. "cancel" - Cancel the latest unfinished match; players return to queue.
-10. "auto" - Enable automatic court filling.
-11. "manual" - Switch to manual court filling.
-12. "suggest <4 names>" - Suggest the most balanced split of four players.
-13. "assign <court> <P1> <P2> vs <P3> <P4>" - Put an exact lineup on a court.
-14. "member" - List club members or show a member's info ("member <name>").
-15. "grade <name> [A-E]" - Show or reset a member's grade and rating ("grade Bob A").
+9. "cancel [court]" - Cancel an unfinished match (latest if no court given, e.g. "cancel" or "cancel 2"); players return to queue.
+10. "set <name1> <name2>" - Swap two players between waiting bench and courts, or between courts (e.g. "set Alice Bob").
+11. "auto" - Enable automatic court filling.
+12. "manual" - Switch to manual court filling.
+13. "suggest <4 names>" - Suggest the most balanced split of four players.
+14. "assign <court> <P1> <P2> vs <P3> <P4>" - Put an exact lineup on a court.
+15. "member" - List club members or show a member's info ("member <name>").
+16. "grade <name> [A-E]" - Show or reset a member's grade and rating ("grade Bob A").
 
 Important Rules:
 1. Fuzzy and Typo Name Matching:

@@ -120,39 +120,35 @@ the whole message (`next`, not "next please").
 
 **Picking matches yourself:**
 
-- `manual`: the bot stops filling courts on its own (`auto` turns it back
-  on).
-- `suggest Alice Bob Cara Dan`: shows the most balanced split of four
-  waiting players.
-- `assign 1 Alice Bob vs Cara Dan`: puts exactly this lineup on Court 1. The
-  format follows the genders (all men → men's, all women → women's,
-  otherwise mixed).
-- `next`: one automatic match on the first free court, in either mode.
-- `cancel`: cancels the latest unfinished match; its players go back to the
-  queue.
+- `manual`: you pick lineups (`auto` lets the bot fill courts again).
+- `suggest Alice Bob Cara Dan`: shows the most balanced split.
+- `assign 1 Alice Bob vs Cara Dan`: puts that lineup on Court 1.
+- `next`: fills one free court automatically.
+- `cancel`: undoes the latest match. `cancel 2` undoes the match on Court 2.
+- `set Alice Bob`: swaps players — bench↔court or court↔court (e.g. sub someone in, or trade spots).
 
-### Commands
+### Commands (quick guide)
 
-| Area | Command | What it does |
+| Command | What it does | Example |
 |---|---|---|
-| AI | `chat <message>` | Run commands or ask questions in natural language (e.g. `chat court 1 finished 21-15`, `chat check in Alice and Bob`) |
-| Session | `start` / `stop` | Start the session / end it and get the recap |
-| | `status` | Courts with lineups, who's waiting, latest results |
-| Players | `in <names>` | Check members in; `in Eko M C` also adds a new member |
-| | `out <name>` | Take a player out of the rotation |
-| Courts | `courts <n>` | Set the number of courts (`courts` alone lists them) |
-| | `next` | Fill the next free court automatically |
-| | `done <court> <a>-<b>` | Record a result and free the court |
-| | `cancel [court]` | Cancel an unfinished match (latest if omitted) |
-| | `set <name1> <name2>` | Swap/move players between court and waiting bench |
-| Host | `auto` / `manual` | Bot fills courts / you pick lineups |
-| | `suggest <4 names>` | Most balanced split |
-| | `assign <court> A B vs C D` | Put an exact lineup on a court |
-| Member | `member` | List members (`member <name>` shows one) |
-| | `member` + one member per line | Add or update members in bulk |
-| | `grade <name> <A-E>` | Change a grade and reset the rating to it (`grade <name>` shows it) |
-| Setup | `setup admin <club>`, `setup announce`, `setup status` | Bot phone only |
-| | `help` | Command list |
+| `chat <message>` | Talk naturally; bot turns it into commands | `chat court 1 finished 21-15` |
+| `start` / `stop` | Start or end the session | `start` |
+| `status` | See courts, waiting list, recent results | `status` |
+| `in <names>` | Check players in (new: add gender+grade) | `in Alice, Bob` / `in Eko M C` |
+| `out <name>` | Remove a player from rotation | `out Bob` |
+| `courts <n>` | Set number of courts | `courts 2` |
+| `next` | Fill one free court | `next` |
+| `done <court> <a>-<b>` | Save result, free court (Team A first) | `done 1 21-15` |
+| `cancel [court]` | Undo a match (latest, or a specific court) | `cancel` / `cancel 2` |
+| `set <name1> <name2>` | Swap players: bench↔court or court↔court | `set Alice Bob` |
+| `auto` / `manual` | Bot fills courts / you pick lineups | `manual` |
+| `suggest <4 names>` | Get the most balanced split | `suggest Alice Bob Cara Dan` |
+| `assign <court> A B vs C D` | Set an exact lineup | `assign 1 Alice Bob vs Cara Dan` |
+| `member` / `member <name>` | List members or view one | `member Alice` |
+| `grade <name> <A-E>` | Change grade and reset rating | `grade Bob A` |
+| `help` | Show command list | `help` |
+
+Tip: names with spaces use commas, e.g. `in Mary Jane, Bob`. Setup commands (`setup admin/announce/status`) are run on the bot’s phone only. Old command names still work.
 
 Old command names (`checkin`, `add`, `remove`, `players`, `matches`, `mode`,
 `pause`, `resume`, `roster`, `members`) still work but are not listed in `help`.
