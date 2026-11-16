@@ -23,6 +23,9 @@ var ErrNotFound = errors.New("match: not found")
 type ReadRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (Match, error)
 	ListBySession(ctx context.Context, sessionID uuid.UUID) ([]Match, error)
+	// SessionRatingSummary returns each player's rating before their first
+	// and after their last finished match in the session.
+	SessionRatingSummary(ctx context.Context, sessionID uuid.UUID) (map[uuid.UUID]RatingRange, error)
 	ListPlayers(ctx context.Context, matchID uuid.UUID) ([]Player, error)
 	ListPlayersBySession(ctx context.Context, sessionID uuid.UUID) (map[uuid.UUID][]Player, error)
 }
@@ -101,6 +104,24 @@ func (r *pgReadRepository) ListPlayersBySession(ctx context.Context, sessionID u
 	for _, row := range rows {
 		p := toPlayer(row)
 		out[row.MatchID] = append(out[row.MatchID], p)
+	}
+	return out, nil
+}
+
+// RatingRange is a player's rating at the start and end of a session.
+type RatingRange struct {
+	Start float64
+	End   float64
+}
+
+func (r *pgReadRepository) SessionRatingSummary(ctx context.Context, sessionID uuid.UUID) (map[uuid.UUID]RatingRange, error) {
+	rows, err := r.q.GetSessionRatingSummary(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("session rating summary: %w", err)
+	}
+	out := make(map[uuid.UUID]RatingRange, len(rows))
+	for _, row := range rows {
+		out[row.PlayerID] = RatingRange{Start: row.RatingStart, End: row.RatingEnd}
 	}
 	return out, nil
 }

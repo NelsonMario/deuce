@@ -240,87 +240,118 @@ history carry over instead of resetting at every join.
 
 ## WhatsApp Bot Integration (`whatsmeow`)
 
-Deuce can operate as a bot in one badminton WhatsApp group. It is a public
-announcement channel: the bot never links players to phone numbers, sends
-private messages, or processes private chats.
+Deuce runs as a bot in two WhatsApp groups: an **admin group** where hosts
+type commands, and an **announcement group** where players only receive
+lineups and results. The bot never links players to phone numbers, never
+sends private messages, and ignores private chats.
+
+The bot is configured from WhatsApp itself (`setup` commands). Its setup is
+stored in the database (`whatsapp_bot_config`), so nothing in `.env` changes
+and no restart is needed after the one-time QR pairing.
 
 ### Design
 
 ```text
-Configured WhatsApp group
-  -> whatsmeow adapter and group-only dispatcher
-  -> command adapter (public reads / admin mutations)
-  -> existing session and match services
-  -> PostgreSQL match transaction + whatsapp_group_outbox
-  -> background sender -> same WhatsApp group
+Admin group ──commands──> dispatcher ──> GroupCommands ──> club / session / match services
+                                                              │
+                                     PostgreSQL match transaction + whatsapp_group_outbox
+                                                              │
+Announcement group <──lineups── outbox worker <───────────────┘
+Announcement group <──results, session start/end── GroupCommands (direct send)
+Admin group        <──replies, errors, recap──────  GroupCommands
 ```
 
-The match service remains the single source of truth for court assignment,
-fair rotation, and ratings. When it creates a match, it writes exactly one
-public announcement to `whatsapp_group_outbox` in the *same transaction*.
-The sender claims jobs with `FOR UPDATE SKIP LOCKED`, so multiple backend
-instances cannot deliberately send the same job at once. Failed sends retry
-up to five times; a job stuck in `SENDING` is recoverable after five minutes.
-WhatsApp outages never block or roll back a match assignment.
-Before delivery, the worker verifies that the match still exists and the
-session is still active; pending stale announcements are cancelled.
+- **Routing** (`dispatcher.go`). Every message in the admin group may be a
+  command; all members of that group are admins, because only members can
+  post there. Adding or removing a co-host is done in WhatsApp's group
+  settings. Everything in the announcement group is ignored. Private chats
+  and other groups are ignored. Only messages that parse as commands are
+  considered; commands older than two minutes (the backlog WhatsApp replays
+  after a reconnect) are dropped.
+- **Ownership** (`setup`). `setup` commands are only accepted when typed on
+  the bot's own phone (WhatsApp delivers them to the linked device as
+  "from me"), so whoever holds the bot phone controls the setup and no owner
+  number needs configuring.
+- **Lineups** are written to `whatsapp_group_outbox` in the *same
+  transaction* that creates the match, addressed to the announcement group
+  configured at that moment. The worker claims jobs with
+  `FOR UPDATE SKIP LOCKED`, retries failed sends up to five times, recovers
+  jobs stuck in `SENDING` after five minutes, and cancels announcements whose
+  match or session is gone. WhatsApp outages never block or roll back a
+  match assignment. With no announcement group set up, lineups are not
+  queued.
+- **Results and session start/end** are posted directly to the announcement
+  group after the command succeeds (best effort).
 
 ### Setup
 
-1. Run the database migrations.
-2. Create a dedicated WhatsApp account for the bot and add it to the club
-   group.
-3. Set these values in `.env`:
+1. Run the database migrations (`docker compose run --rm migrate`).
+2. Get a dedicated WhatsApp number for the bot. Add it to the players' group
+   and to a small admin group (you, co-hosts, the bot).
+3. Start the backend. The bot starts by default (`WHATSAPP_ENABLED=false`
+   turns it off).
+4. Pair the bot: call `GET /api/v1/whatsapp/qr` with any authenticated
+   Deuce token and scan the code on the bot phone under **WhatsApp → Linked
+   devices**. The endpoint returns `READY` with the latest code, `WAITING`
+   while a code is being generated (retry in a few seconds; a timed-out
+   pairing restarts automatically), or `PAIRED` once linked. whatsmeow stores
+   the pairing in the separate `whatsmeow` schema and reconnects after
+   restarts.
+5. On the bot phone, type `setup admin <club name>` in the admin group (the
+   club is created the first time) and `setup announce` in the players'
+   group. `setup status` shows the current setup.
 
-   ```env
-   WHATSAPP_GROUP_JID=1234567890-1234567890@g.us
-   WHATSAPP_ADMIN_JIDS=628123456789@s.whatsapp.net,628987654321@s.whatsapp.net
-   WHATSAPP_CLUB_ID=<the Deuce club UUID>
-   ```
+`GET /api/v1/whatsapp/status` reports the connection plus whether the club,
+admin group and announcement group are configured. `GET /api/v1/whatsapp/groups`
+lists the groups the bot belongs to.
 
-   `WHATSAPP_GROUP_JID` is the WhatsApp group identifier, not its display
-   name. Admin JIDs use the `phone@s.whatsapp.net` form. Keep this list in
-   deployment configuration; it is the authorization boundary for changes.
-4. Start Deuce, authenticate to `/api/v1/whatsapp/qr`, and scan the returned
-   code using the bot account's WhatsApp **Linked devices** screen. This pairs
-   the bot account only; players never pair their accounts. The endpoint
-   returns `READY` with the latest code, `WAITING` while a code is being
-   generated (retry in a few seconds; a timed-out pairing restarts
-   automatically), or `PAIRED` once linked.
-5. Check `/api/v1/whatsapp/status`. whatsmeow stores bot credentials in the
-   separate PostgreSQL `whatsmeow` schema and reconnects after restarts.
+**Upgrading from the `.env` setup.** `WHATSAPP_CLUB_ID` and
+`WHATSAPP_GROUP_JID` are copied into the database once (the group becomes the
+announcement group). Until `setup admin` is run, the old single-group mode
+keeps working: commands from `WHATSAPP_ADMIN_JIDS` are accepted in that group.
+After `setup admin`, those variables can be removed.
 
-If any WhatsApp setting is missing, the bot is disabled and the normal Deuce
-API continues to work.
+### Commands
 
-### Group commands
+Typed in the admin group. Commands without arguments must be the whole
+message (`next`, not `next week?`); anything that is not a command gets no
+reply.
 
-Everyone in the configured group may use `help`, `status`, `players`, and
-`matches`. Only JIDs in `WHATSAPP_ADMIN_JIDS` may use `start`, `stop`,
-`pause`, `resume`, `next`, `add <name> [M/F]`, `remove <name>`,
-`courts <n>`, `done <court> <a>-<b>`, or `cancel`. Private chats and messages
-in every other group are ignored.
+| Area | Commands |
+|---|---|
+| Session | `start`, `stop` (posts a recap to admins), `status`, `players`, `matches` |
+| Courts | `courts <n>` (adds courts), `next`, `done <court> <a>-<b>`, `cancel` |
+| Players | `checkin <names>` (roster members), `add <name> [M/F] [A-E]`, `remove <name>` |
+| Manual | `mode auto` / `mode manual`, `suggest <4 names>`, `assign <court> A B vs C D`, `pause`, `resume` |
+| Roster | `roster` + one `Name [M/F] [A-E]` per line, `members`, `grade <name> <A-E>` |
+| Setup (bot phone) | `setup admin <club>`, `setup announce`, `setup status` |
 
-- Commands without arguments must be the whole message (`next`, not
-  `next week?`), and messages that are not commands get no reply, so normal
-  group conversation is never mistaken for a command.
-- Admins are matched on both the sender JID and its alternate address, so
-  groups that address members by LID (`…@lid`) still recognize admins listed
-  by phone number.
-- The bot ignores its own messages and anything older than two minutes
-  (the offline backlog WhatsApp replays after a reconnect).
-- `start` creates a new automatic session when none is available.
-- `next` uses the existing automatic matchmaker and posts its assignment to
-  the same group.
-- `done <court> <a>-<b>` starts the match on that court if needed, finishes
-  it with the score (ratings update), and frees the court for the next
-  assignment.
-- `remove <name>` takes a waiting player out of the rotation; `add` brings a
-  removed or on-break player back.
+Names with spaces are separated with commas: `checkin Mary Jane, Bob`,
+`assign 1 Mary Jane, Bob vs Cara, Dan`.
 
-The bot account should be a normal group member. Messages contain player
-names, court, and format; do not use this mode if the group is not an
-appropriate place to share that information.
+- `done` starts the court's match if it was only assigned, finishes it with
+  the score (ratings update), frees the court and posts the result.
+- `assign` and `suggest` infer the format from genders (all men → men's,
+  all women → women's, otherwise mixed). `MIXED_DOUBLES` accepts any gender
+  mix, for automatic and manual matches alike.
+- `remove` takes a waiting player out of the rotation; `add` or `checkin`
+  brings them back.
+
+### Grades and recap
+
+`club_members.grade` (A–E) is the host's skill grade. It sets a new member's
+starting rating — A=1400, B=1200, C=1000 (the system default), D=800,
+E=600 — after which the Elo rating moves with results. Re-importing a member
+with `roster` updates their stored grade but keeps their earned rating;
+`grade <name> <X>` explicitly resets the rating to the grade's value.
+
+`stop` replies with a recap: each player's games, wins/losses and rating
+change over the session (from `match_players.rating_before/after`), sorted
+by change. A `B→A` marker means the rating now falls in another grade's band
+(centred on each grade's rating), as a hint for re-grading.
+
+The announcement group contains player names, courts and scores; do not use
+the bot where sharing that is inappropriate.
 
 ## Co-hosts
 

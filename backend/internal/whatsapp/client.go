@@ -180,6 +180,18 @@ func (w *WhatsmeowClient) SendMessage(ctx context.Context, recipient types.JID, 
 	return err
 }
 
+func (w *WhatsmeowClient) JoinedGroups(ctx context.Context) ([]Group, error) {
+	groups, err := w.client.GetJoinedGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Group, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, Group{JID: g.JID.String(), Name: g.GroupName.Name})
+	}
+	return out, nil
+}
+
 func (w *WhatsmeowClient) handleInternalEvents(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Connected:

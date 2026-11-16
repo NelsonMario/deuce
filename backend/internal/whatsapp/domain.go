@@ -59,4 +59,12 @@ type Client interface {
 	CurrentQR() (code string, ok bool)
 	SendMessage(ctx context.Context, recipient types.JID, text string) error
 	AddEventHandler(handler func(evt interface{}))
+	// JoinedGroups lists the groups the bot account is a member of.
+	JoinedGroups(ctx context.Context) ([]Group, error)
+}
+
+// Group is a WhatsApp group the bot account belongs to.
+type Group struct {
+	JID  string `json:"jid"`
+	Name string `json:"name"`
 }

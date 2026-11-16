@@ -166,6 +166,44 @@ func (q *Queries) GetMatchByID(ctx context.Context, id uuid.UUID) (Match, error)
 	return i, err
 }
 
+const getSessionRatingSummary = `-- name: GetSessionRatingSummary :many
+SELECT mp.player_id::uuid AS player_id,
+       (array_agg(mp.rating_before ORDER BY m.ended_at ASC))[1]::float8 AS rating_start,
+       (array_agg(mp.rating_after ORDER BY m.ended_at DESC))[1]::float8 AS rating_end
+FROM match_players mp
+JOIN matches m ON m.id = mp.match_id
+WHERE m.session_id = $1 AND m.status = 'FINISHED' AND mp.player_id IS NOT NULL
+GROUP BY mp.player_id
+`
+
+type GetSessionRatingSummaryRow struct {
+	PlayerID    uuid.UUID `json:"player_id"`
+	RatingStart float64   `json:"rating_start"`
+	RatingEnd   float64   `json:"rating_end"`
+}
+
+// Each player's rating before their first and after their last finished
+// match of a session, for the end-of-session recap.
+func (q *Queries) GetSessionRatingSummary(ctx context.Context, sessionID uuid.UUID) ([]GetSessionRatingSummaryRow, error) {
+	rows, err := q.db.Query(ctx, getSessionRatingSummary, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetSessionRatingSummaryRow{}
+	for rows.Next() {
+		var i GetSessionRatingSummaryRow
+		if err := rows.Scan(&i.PlayerID, &i.RatingStart, &i.RatingEnd); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMatchPlayers = `-- name: ListMatchPlayers :many
 SELECT id, match_id, player_id, team, rating_before, rating_after, rating_change FROM match_players WHERE match_id = $1 ORDER BY team ASC
 `

@@ -43,6 +43,15 @@ func (f *fakeCommander) Expire(ctx context.Context, key string, expiration time.
 	return redis.NewBoolResult(true, nil)
 }
 
+// TTL reports -1 (no expiry) for keys Expire was never called on, which is
+// what Redis returns for an existing key without a TTL.
+func (f *fakeCommander) TTL(ctx context.Context, key string) *redis.DurationCmd {
+	if d, ok := f.expireCalled[key]; ok {
+		return redis.NewDurationResult(d, nil)
+	}
+	return redis.NewDurationResult(-1, nil)
+}
+
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(discardWriter{}, nil))
 }
@@ -136,6 +145,30 @@ func TestRedisLimiter_FailsOpenOnExpireError(t *testing.T) {
 	// Expire failing must not block the (still successfully counted) request.
 	if !l.Allow(ctx, "player:a") {
 		t.Fatalf("expected Allow to succeed even when the best-effort Expire call fails")
+	}
+}
+
+// A key whose first-hit Expire failed has no TTL and would block forever;
+// the next over-limit request must re-arm the expiry.
+func TestRedisLimiter_RepairsKeyWithoutTTL(t *testing.T) {
+	fc := newFakeCommander()
+	window := time.Minute
+	l := newTestLimiter(fc, 2, window)
+	ctx := context.Background()
+
+	fc.expireErr = errors.New("timeout")
+	l.Allow(ctx, "ip:1") // first hit: Expire fails, key left without TTL
+	fc.expireErr = nil
+	l.Allow(ctx, "ip:1")
+	if _, armed := fc.expireCalled["ip:1"]; armed {
+		t.Fatalf("expiry should not be touched while under the limit")
+	}
+
+	if l.Allow(ctx, "ip:1") {
+		t.Fatalf("expected request over the limit to be rejected")
+	}
+	if got := fc.expireCalled["ip:1"]; got != window {
+		t.Fatalf("expected stuck key to be re-armed with %v, got %v", window, got)
 	}
 }
 

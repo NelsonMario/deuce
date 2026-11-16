@@ -57,6 +57,9 @@ type Querier interface {
 	GetSessionPlayer(ctx context.Context, id uuid.UUID) (SessionPlayer, error)
 	GetSessionPlayerBySessionAndPlayer(ctx context.Context, arg GetSessionPlayerBySessionAndPlayerParams) (SessionPlayer, error)
 	GetSessionPlayerBySessionAndPlayerForUpdate(ctx context.Context, arg GetSessionPlayerBySessionAndPlayerForUpdateParams) (SessionPlayer, error)
+	// Each player's rating before their first and after their last finished
+	// match of a session, for the end-of-session recap.
+	GetSessionRatingSummary(ctx context.Context, sessionID uuid.UUID) ([]GetSessionRatingSummaryRow, error)
 	IncrementSessionPlayerMatchStats(ctx context.Context, arg IncrementSessionPlayerMatchStatsParams) (SessionPlayer, error)
 	InsertRatingHistory(ctx context.Context, arg InsertRatingHistoryParams) (RatingHistory, error)
 	// Sessions eligible for the fully-automatic auto-fill background job: ACTIVE,
@@ -66,6 +69,10 @@ type Querier interface {
 	ListActiveAutoFillSessions(ctx context.Context) ([]Session, error)
 	ListAvailableCourtsBySession(ctx context.Context, sessionID uuid.UUID) ([]Court, error)
 	ListClubMembers(ctx context.Context, clubID uuid.UUID) ([]ClubMember, error)
+	// Club members with their profile, host-assigned grade and current rating,
+	// strongest first.
+	ListClubRoster(ctx context.Context, clubID uuid.UUID) ([]ListClubRosterRow, error)
+	ListClubsByName(ctx context.Context, lower string) ([]Club, error)
 	ListCourtsBySession(ctx context.Context, sessionID uuid.UUID) ([]Court, error)
 	ListMatchPlayers(ctx context.Context, matchID uuid.UUID) ([]MatchPlayer, error)
 	ListMatchPlayersBySession(ctx context.Context, sessionID uuid.UUID) ([]MatchPlayer, error)
@@ -86,6 +93,7 @@ type Querier interface {
 	LockPlayerRatingsByIDs(ctx context.Context, playerIds []uuid.UUID) ([]PlayerRating, error)
 	LockSessionByID(ctx context.Context, id uuid.UUID) (Session, error)
 	LockSessionPlayersByIDs(ctx context.Context, ids []uuid.UUID) ([]SessionPlayer, error)
+	SetClubMemberGrade(ctx context.Context, arg SetClubMemberGradeParams) (ClubMember, error)
 	SetCourtStatus(ctx context.Context, arg SetCourtStatusParams) (Court, error)
 	SetMatchPlayerRatingAfter(ctx context.Context, arg SetMatchPlayerRatingAfterParams) (MatchPlayer, error)
 	SetSessionPlayerStatus(ctx context.Context, arg SetSessionPlayerStatusParams) (SessionPlayer, error)

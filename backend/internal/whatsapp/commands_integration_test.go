@@ -5,13 +5,14 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 
-	"github.com/google/uuid"
 	"go.mau.fi/whatsmeow/types"
 
 	"deuce/backend/internal/auth"
 	"deuce/backend/internal/club"
+	"deuce/backend/internal/device"
 	"deuce/backend/internal/lock"
 	"deuce/backend/internal/match"
 	"deuce/backend/internal/player"
@@ -20,37 +21,60 @@ import (
 	"deuce/backend/internal/whatsapp"
 )
 
-const adminPhone = "628111111111@s.whatsapp.net"
+const (
+	adminGroup    = "120363000000000001@g.us"
+	announceGroup = "120363000000000002@g.us"
+	otherGroup    = "120363000000000003@g.us"
+)
+
+type fakeAnnouncer struct {
+	mu   sync.Mutex
+	msgs []string
+}
+
+func (a *fakeAnnouncer) Announce(_ context.Context, text string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.msgs = append(a.msgs, text)
+	return nil
+}
+
+func (a *fakeAnnouncer) last() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.msgs) == 0 {
+		return ""
+	}
+	return a.msgs[len(a.msgs)-1]
+}
 
 type botFixture struct {
-	bot      *whatsapp.GroupCommands
-	sessions *session.Service
-	clubID   uuid.UUID
+	bot       *whatsapp.GroupCommands
+	announcer *fakeAnnouncer
+	players   player.Repository
+	clubs     *club.Service
 }
 
 func newBotFixture(t *testing.T) botFixture {
 	pool := testutil.NewTestPool(t)
-	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	clubRepo := club.NewRepository(pool)
 	playerRepo := player.NewRepository(pool)
 	sessionRepo := session.NewRepository(pool)
-	sessions := session.NewService(sessionRepo, clubRepo, playerRepo, auth.NewHasher("test"), nil, logger)
-	matches := match.NewService(pool, match.NewReadRepository(pool), lock.NoopLocker{}, logger)
-
-	host, err := playerRepo.Create(ctx, "Host", player.Male)
-	if err != nil {
-		t.Fatalf("create host: %v", err)
-	}
-	c, err := clubRepo.CreateClub(ctx, "Bot Club", host.ID, "BOTCLUB1")
-	if err != nil {
-		t.Fatalf("create club: %v", err)
-	}
+	hasher := auth.NewHasher("test")
+	clubs := club.NewService(clubRepo, playerRepo, hasher, device.NoopLinker{}, 8, logger)
+	sessions := session.NewService(sessionRepo, clubRepo, playerRepo, hasher, nil, logger)
+	reads := match.NewReadRepository(pool)
+	matches := match.NewService(pool, reads, lock.NoopLocker{}, logger)
+	config := whatsapp.NewConfigStore(pool)
+	matches.SetAnnouncementOutbox(whatsapp.NewRepository(pool, config))
+	ann := &fakeAnnouncer{}
 	return botFixture{
-		bot:      whatsapp.NewGroupCommands(c.ID, []string{adminPhone}, sessions, matches, playerRepo),
-		sessions: sessions,
-		clubID:   c.ID,
+		bot:       whatsapp.NewGroupCommands(config, clubs, sessions, matches, reads, playerRepo, ann),
+		announcer: ann,
+		players:   playerRepo,
+		clubs:     clubs,
 	}
 }
 
@@ -63,126 +87,119 @@ func jid(t *testing.T, s string) types.JID {
 	return j
 }
 
-func (f botFixture) say(t *testing.T, from whatsapp.Sender, text string) string {
+func (f botFixture) send(t *testing.T, chat string, fromMe bool, text string) string {
 	t.Helper()
-	reply, err := f.bot.Handle(context.Background(), from, text)
+	reply, err := f.bot.Handle(context.Background(), whatsapp.Request{Chat: jid(t, chat), FromMe: fromMe, Text: text})
 	if err != nil {
 		t.Fatalf("%q: unexpected error: %v", text, err)
 	}
 	return reply
 }
 
-func expectContains(t *testing.T, text, reply, want string) {
+// admin sends a command in the admin group from an admin's own phone.
+func (f botFixture) admin(t *testing.T, text string) string {
 	t.Helper()
-	if !strings.Contains(reply, want) {
-		t.Fatalf("%q: reply %q does not contain %q", text, reply, want)
+	return f.send(t, adminGroup, false, text)
+}
+
+func expect(t *testing.T, label, got, want string) {
+	t.Helper()
+	if !strings.Contains(got, want) {
+		t.Fatalf("%s: reply %q does not contain %q", label, got, want)
 	}
 }
 
-// TestIntegration_GroupCommands_FullSession drives a whole session through
-// the group commands: setup, assignment, finishing a match (which must free
-// the court for the next one), and removing/re-adding a player.
-func TestIntegration_GroupCommands_FullSession(t *testing.T) {
+func (f botFixture) setUp(t *testing.T) {
+	t.Helper()
+	expect(t, "setup admin", f.send(t, adminGroup, true, "setup admin Tiger Club"), "admin group")
+	expect(t, "setup announce", f.send(t, announceGroup, true, "setup announce"), "announcement group")
+}
+
+func TestIntegration_Setup(t *testing.T) {
 	f := newBotFixture(t)
-	admin := whatsapp.Sender{JID: jid(t, adminPhone)}
-	member := whatsapp.Sender{JID: jid(t, "628999999999@s.whatsapp.net")}
 
-	// Conversation and non-admin mutations.
-	if reply := f.say(t, admin, "next week we play at 7?"); reply != "" {
-		t.Fatalf("conversation got a reply: %q", reply)
+	// Before setup, commands explain how to set up.
+	expect(t, "before setup", f.admin(t, "status"), "not set up")
+	// setup is only accepted from the bot's own phone.
+	if reply := f.send(t, adminGroup, false, "setup admin Tiger Club"); reply != "" {
+		t.Fatalf("setup from a non-bot phone outside the admin group should be ignored, got %q", reply)
 	}
-	if reply := f.say(t, admin, "hello everyone"); reply != "" {
-		t.Fatalf("conversation got a reply: %q", reply)
+	expect(t, "usage", f.send(t, adminGroup, true, "setup admin"), "Usage")
+	expect(t, "setup admin", f.send(t, adminGroup, true, "setup admin Tiger Club"), "*Tiger Club* (new)")
+	expect(t, "non-bot setup in admin group", f.send(t, adminGroup, false, "setup announce"), "bot's own phone")
+	expect(t, "announce in admin group", f.send(t, adminGroup, true, "setup announce"), "This is the admin group")
+	expect(t, "setup announce", f.send(t, announceGroup, true, "setup announce"), "announcement group")
+	expect(t, "admin in announce group", f.send(t, announceGroup, true, "setup admin"), "This is the announcement group")
+
+	status := f.send(t, adminGroup, true, "setup status")
+	for _, want := range []string{"Tiger Club", "Admin group: set", "Announcement group: set", "This group: admin group"} {
+		expect(t, "setup status", status, want)
 	}
-	expectContains(t, "start", f.say(t, member, "start"), "admins only")
+	expect(t, "other group status", f.send(t, otherGroup, true, "setup status"), "not used by the bot")
 
-	expectContains(t, "start", f.say(t, admin, "start"), "created and started")
-	expectContains(t, "courts 1", f.say(t, admin, "courts 1"), "1 court(s)")
-	for _, name := range []string{"Alice F", "Bob M", "Cara F", "Dan M", "Eve F"} {
-		expectContains(t, "add", f.say(t, admin, "add "+name), "added")
-	}
-
-	expectContains(t, "next", f.say(t, admin, "next"), "Match assigned")
-	expectContains(t, "next (no court)", f.say(t, admin, "next"), "No court is available")
-
-	// Finishing frees the court so another match can be assigned.
-	expectContains(t, "done tie", f.say(t, admin, "done 1 21-21"), "tie")
-	expectContains(t, "done 2", f.say(t, admin, "done 2 21-15"), "no Court 2")
-	expectContains(t, "done 1", f.say(t, admin, "done 1 21-15"), "Court 1 finished 21–15")
-	expectContains(t, "done again", f.say(t, admin, "done 1 21-15"), "No match is running")
-	expectContains(t, "matches", f.say(t, member, "matches"), "Court 1 — FINISHED (21–15)")
-	expectContains(t, "next", f.say(t, admin, "next"), "Match assigned")
-
-	// Remove a waiting player, then bring them back with add.
-	sess := f.currentSession(t)
-	waitingName := f.someone(t, sess, session.PlayerWaiting)
-	expectContains(t, "remove", f.say(t, admin, "remove "+waitingName), "removed")
-	if got := f.statusOf(t, sess, waitingName); got != session.PlayerEnded {
-		t.Fatalf("after remove: status %s, want ENDED", got)
-	}
-	expectContains(t, "add back", f.say(t, admin, "add "+waitingName), "added")
-	if got := f.statusOf(t, sess, waitingName); got != session.PlayerWaiting {
-		t.Fatalf("after re-add: status %s, want WAITING", got)
-	}
-
-	playingName := f.someone(t, sess, session.PlayerPlaying)
-	expectContains(t, "remove playing", f.say(t, admin, "remove "+playingName), "on court")
-
-	expectContains(t, "cancel", f.say(t, admin, "cancel"), "cancelled")
-	expectContains(t, "stop", f.say(t, admin, "stop"), "Session finished")
-	expectContains(t, "status", f.say(t, member, "status"), "No session")
+	// Re-running setup admin keeps the club.
+	expect(t, "re-setup", f.send(t, otherGroup, true, "setup admin Something Else"), "Club: *Tiger Club*")
 }
 
-// TestIntegration_GroupCommands_AdminByAltJID covers groups that address
-// members by LID: the admin's phone JID then arrives as the alternate sender.
-func TestIntegration_GroupCommands_AdminByAltJID(t *testing.T) {
+func TestIntegration_RosterAndGrades(t *testing.T) {
 	f := newBotFixture(t)
-	lidAdmin := whatsapp.Sender{JID: jid(t, "123456789@lid"), Alt: jid(t, adminPhone)}
-	expectContains(t, "start", f.say(t, lidAdmin, "start"), "created and started")
+	f.setUp(t)
 
-	lidStranger := whatsapp.Sender{JID: jid(t, "987654321@lid")}
-	expectContains(t, "stop", f.say(t, lidStranger, "stop"), "admins only")
+	reply := f.admin(t, "roster\nAlice F A\nBob M B\nMary Jane F C\nDan M E")
+	expect(t, "roster", reply, "4 added, 0 updated")
+
+	members := f.admin(t, "members")
+	for _, want := range []string{"Alice (F) — A · 1400", "Bob (M) — B · 1200", "Mary Jane (F) — C · 1000", "Dan (M) — E · 600"} {
+		expect(t, "members", members, want)
+	}
+
+	// Re-import keeps earned ratings but updates the grade.
+	expect(t, "re-import", f.admin(t, "roster\nBob M A"), "0 added, 1 updated")
+	expect(t, "after re-import", f.admin(t, "members"), "Bob (M) — A · 1200")
+
+	// grade resets the rating explicitly.
+	expect(t, "grade", f.admin(t, "grade bob A"), "rating reset to 1400")
+	expect(t, "grade unknown", f.admin(t, "grade Nobody B"), "not in the roster")
+	expect(t, "grade bad", f.admin(t, "grade Bob Z"), "A, B, C, D or E")
 }
 
-func (f botFixture) currentSession(t *testing.T) session.Session {
-	t.Helper()
-	all, err := f.sessions.ListByClub(context.Background(), f.clubID)
-	if err != nil || len(all) == 0 {
-		t.Fatalf("list sessions: %v (%d)", err, len(all))
-	}
-	return all[0]
-}
+func TestIntegration_FullSession(t *testing.T) {
+	f := newBotFixture(t)
+	f.setUp(t)
+	f.admin(t, "roster\nAlice F A\nBob M B\nCara F B\nDan M C\nEve F D\nFrank M C")
 
-// someone returns the display name of a player with the given status, read
-// from the public `players` command output ("• Name — STATUS").
-func (f botFixture) someone(t *testing.T, sess session.Session, status session.PlayerStatus) string {
-	t.Helper()
-	reply, err := f.bot.Handle(context.Background(), whatsapp.Sender{}, "players")
-	if err != nil {
-		t.Fatalf("players: %v", err)
-	}
-	for _, line := range strings.Split(reply, "\n") {
-		name, st, ok := strings.Cut(strings.TrimPrefix(line, "• "), " — ")
-		if ok && st == string(status) {
-			return name
-		}
-	}
-	t.Fatalf("no player with status %s in:\n%s", status, reply)
-	return ""
-}
+	expect(t, "start", f.admin(t, "start"), "created and started")
+	expect(t, "start announce", f.announcer.last(), "Session started")
+	expect(t, "courts", f.admin(t, "courts 2"), "2 court(s)")
+	expect(t, "pause", f.admin(t, "pause"), "paused")
 
-func (f botFixture) statusOf(t *testing.T, sess session.Session, name string) session.PlayerStatus {
-	t.Helper()
-	reply, err := f.bot.Handle(context.Background(), whatsapp.Sender{}, "players")
-	if err != nil {
-		t.Fatalf("players: %v", err)
+	reply := f.admin(t, "checkin Alice Bob Cara Dan Zed")
+	expect(t, "checkin", reply, "Checked in (4)")
+	expect(t, "checkin unknown", reply, "Not in the roster: Zed")
+	expect(t, "add guest", f.admin(t, "add Zed M D"), "New member, grade D")
+	expect(t, "guest rating", f.admin(t, "members"), "Zed (M) — D · 800")
+
+	// Manual assignment.
+	expect(t, "mode", f.admin(t, "mode manual"), "Manual mode")
+	expect(t, "suggest", f.admin(t, "suggest Alice Bob Cara Dan"), "Most balanced")
+	expect(t, "assign bad court", f.admin(t, "assign 9 Alice Bob vs Cara Dan"), "no Court 9")
+	expect(t, "assign unknown", f.admin(t, "assign 1 Alice Bob vs Cara Nobody"), "Not in the roster: Nobody")
+	expect(t, "assign", f.admin(t, "assign 1 Alice Bob vs Cara Dan"), "Court 1: Alice / Bob vs Cara / Dan")
+	expect(t, "assign busy player", f.admin(t, "assign 2 Alice Zed vs Cara Dan"), "Could not assign")
+
+	// Finishing posts the result to the announcement group.
+	expect(t, "done", f.admin(t, "done 1 15-21"), "Court 1 finished 15–21")
+	expect(t, "result announce", f.announcer.last(), "Cara / Dan beat Alice / Bob 21–15")
+	expect(t, "matches", f.admin(t, "matches"), "Court 1 — FINISHED (15–21)")
+	expect(t, "next", f.admin(t, "next"), "assigned")
+
+	expect(t, "status", f.admin(t, "status"), "Mode: manual")
+
+	// Stop: recap to admins, short notice to players.
+	recap := f.admin(t, "stop")
+	t.Logf("recap:\n%s", recap)
+	for _, want := range []string{"Session finished", "Session recap", "1 match", "Cara", "Alice"} {
+		expect(t, "recap", recap, want)
 	}
-	for _, line := range strings.Split(reply, "\n") {
-		n, st, ok := strings.Cut(strings.TrimPrefix(line, "• "), " — ")
-		if ok && n == name {
-			return session.PlayerStatus(st)
-		}
-	}
-	t.Fatalf("player %q not in:\n%s", name, reply)
-	return ""
+	expect(t, "stop announce", f.announcer.last(), "Session finished")
 }

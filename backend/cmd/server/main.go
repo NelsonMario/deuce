@@ -97,48 +97,52 @@ func main() {
 	matchService := match.NewService(pool, matchReadRepo, matchLocker, logger)
 
 	var whatsappService *whatsapp.Service
-	if cfg.WhatsAppGroupJID != "" || cfg.WhatsAppClubID != "" {
-		clubID, parseErr := uuid.Parse(cfg.WhatsAppClubID)
-		if parseErr != nil || cfg.WhatsAppGroupJID == "" || len(cfg.WhatsAppAdminJIDs) == 0 {
-			logger.Warn("whatsapp_disabled", "reason", "WHATSAPP_GROUP_JID, WHATSAPP_CLUB_ID, and WHATSAPP_ADMIN_JIDS are all required")
-		} else if container, deviceStore, storeErr := whatsapp.InitStore(ctx, cfg.DatabaseURL(), logger); storeErr != nil {
-			logger.Warn("whatsapp_store_init_failed", "error", storeErr)
-		} else {
-			defer container.Close()
-			client := whatsapp.NewWhatsmeowClient(deviceStore, logger)
-			repo := whatsapp.NewRepository(pool, cfg.WhatsAppGroupJID)
-			commands := whatsapp.NewGroupCommands(clubID, cfg.WhatsAppAdminJIDs, sessionService, matchService, playerRepo)
-			dispatcher, dispatcherErr := whatsapp.NewDispatcher(client, cfg.WhatsAppGroupJID, commands, logger)
-			if dispatcherErr != nil {
-				logger.Warn("whatsapp_disabled", "error", dispatcherErr)
-			} else {
-				whatsappService = whatsapp.NewService(client, repo, dispatcher, sessionRepo, matchReadRepo, logger)
-				matchService.SetAnnouncementOutbox(repo)
-				// whatsmeow only auto-reconnects after a connection has been
-				// established once, so retry the initial connect with backoff
-				// (e.g. the network is not ready yet at boot).
-				go func() {
-					delay := 5 * time.Second
-					for {
-						err := whatsappService.Connect()
-						if err == nil {
-							return
-						}
-						logger.Warn("whatsapp_connect_failed", "error", err, "retry_in", delay)
-						select {
-						case <-ctx.Done():
-							return
-						case <-time.After(delay):
-						}
-						if delay < time.Minute {
-							delay *= 2
-						}
-					}
-				}()
-				go whatsappService.Run(ctx)
-				defer whatsappService.Disconnect()
+	if !cfg.WhatsAppEnabled {
+		logger.Info("whatsapp_disabled", "reason", "WHATSAPP_ENABLED=false")
+	} else if container, deviceStore, storeErr := whatsapp.InitStore(ctx, cfg.DatabaseURL(), logger); storeErr != nil {
+		logger.Warn("whatsapp_store_init_failed", "error", storeErr)
+	} else {
+		defer container.Close()
+		configStore := whatsapp.NewConfigStore(pool)
+		if cfg.WhatsAppClubID != "" || cfg.WhatsAppGroupJID != "" {
+			var legacyClub *uuid.UUID
+			if id, err := uuid.Parse(cfg.WhatsAppClubID); err == nil {
+				legacyClub = &id
+			}
+			if err := configStore.SeedLegacy(ctx, legacyClub, cfg.WhatsAppGroupJID); err != nil {
+				logger.Warn("whatsapp_legacy_config_seed_failed", "error", err)
 			}
 		}
+		client := whatsapp.NewWhatsmeowClient(deviceStore, logger)
+		repo := whatsapp.NewRepository(pool, configStore)
+		announcer := whatsapp.NewGroupAnnouncer(client, configStore)
+		commands := whatsapp.NewGroupCommands(configStore, clubService, sessionService, matchService, matchReadRepo, playerRepo, announcer)
+		dispatcher := whatsapp.NewDispatcher(client, configStore, cfg.WhatsAppAdminJIDs, commands, logger)
+		whatsappService = whatsapp.NewService(client, repo, configStore, dispatcher, sessionRepo, matchReadRepo, logger)
+		matchService.SetAnnouncementOutbox(repo)
+		// whatsmeow only auto-reconnects after a connection has been
+		// established once, so retry the initial connect with backoff
+		// (e.g. the network is not ready yet at boot).
+		go func() {
+			delay := 5 * time.Second
+			for {
+				err := whatsappService.Connect()
+				if err == nil {
+					return
+				}
+				logger.Warn("whatsapp_connect_failed", "error", err, "retry_in", delay)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(delay):
+				}
+				if delay < time.Minute {
+					delay *= 2
+				}
+			}
+		}()
+		go whatsappService.Run(ctx)
+		defer whatsappService.Disconnect()
 	}
 
 	whatsappHandler := handler.NewWhatsAppHandler(whatsappService)

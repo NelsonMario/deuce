@@ -9,13 +9,14 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const addClubMember = `-- name: AddClubMember :one
 INSERT INTO club_members (club_id, player_id, role)
 VALUES ($1, $2, $3)
 ON CONFLICT (club_id, player_id) DO UPDATE SET role = club_members.role
-RETURNING id, club_id, player_id, role, joined_at
+RETURNING id, club_id, player_id, role, joined_at, grade
 `
 
 type AddClubMemberParams struct {
@@ -33,6 +34,7 @@ func (q *Queries) AddClubMember(ctx context.Context, arg AddClubMemberParams) (C
 		&i.PlayerID,
 		&i.Role,
 		&i.JoinedAt,
+		&i.Grade,
 	)
 	return i, err
 }
@@ -100,7 +102,7 @@ func (q *Queries) GetClubByJoinCode(ctx context.Context, joinCode string) (Club,
 }
 
 const getClubMember = `-- name: GetClubMember :one
-SELECT id, club_id, player_id, role, joined_at FROM club_members WHERE club_id = $1 AND player_id = $2
+SELECT id, club_id, player_id, role, joined_at, grade FROM club_members WHERE club_id = $1 AND player_id = $2
 `
 
 type GetClubMemberParams struct {
@@ -117,6 +119,7 @@ func (q *Queries) GetClubMember(ctx context.Context, arg GetClubMemberParams) (C
 		&i.PlayerID,
 		&i.Role,
 		&i.JoinedAt,
+		&i.Grade,
 	)
 	return i, err
 }
@@ -149,7 +152,7 @@ func (q *Queries) GetClubMemberPlayerByName(ctx context.Context, arg GetClubMemb
 }
 
 const listClubMembers = `-- name: ListClubMembers :many
-SELECT id, club_id, player_id, role, joined_at FROM club_members WHERE club_id = $1 ORDER BY joined_at
+SELECT id, club_id, player_id, role, joined_at, grade FROM club_members WHERE club_id = $1 ORDER BY joined_at
 `
 
 func (q *Queries) ListClubMembers(ctx context.Context, clubID uuid.UUID) ([]ClubMember, error) {
@@ -167,6 +170,7 @@ func (q *Queries) ListClubMembers(ctx context.Context, clubID uuid.UUID) ([]Club
 			&i.PlayerID,
 			&i.Role,
 			&i.JoinedAt,
+			&i.Grade,
 		); err != nil {
 			return nil, err
 		}
@@ -178,10 +182,118 @@ func (q *Queries) ListClubMembers(ctx context.Context, clubID uuid.UUID) ([]Club
 	return items, nil
 }
 
+const listClubRoster = `-- name: ListClubRoster :many
+SELECT p.id AS player_id, p.display_name, p.gender, cm.role, cm.grade,
+       COALESCE(pr.rating, 1000)::float8 AS rating
+FROM club_members cm
+JOIN players p ON p.id = cm.player_id
+LEFT JOIN player_ratings pr ON pr.player_id = p.id
+WHERE cm.club_id = $1
+  -- The club's technical host identity (created with the club) is not a
+  -- real player in the WhatsApp workflow.
+  AND p.id <> (SELECT c.host_player_id FROM clubs c WHERE c.id = $1)
+ORDER BY rating DESC, lower(p.display_name)
+`
+
+type ListClubRosterRow struct {
+	PlayerID    uuid.UUID      `json:"player_id"`
+	DisplayName string         `json:"display_name"`
+	Gender      PlayerGender   `json:"gender"`
+	Role        ClubMemberRole `json:"role"`
+	Grade       pgtype.Text    `json:"grade"`
+	Rating      float64        `json:"rating"`
+}
+
+// Club members with their profile, host-assigned grade and current rating,
+// strongest first.
+func (q *Queries) ListClubRoster(ctx context.Context, clubID uuid.UUID) ([]ListClubRosterRow, error) {
+	rows, err := q.db.Query(ctx, listClubRoster, clubID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListClubRosterRow{}
+	for rows.Next() {
+		var i ListClubRosterRow
+		if err := rows.Scan(
+			&i.PlayerID,
+			&i.DisplayName,
+			&i.Gender,
+			&i.Role,
+			&i.Grade,
+			&i.Rating,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClubsByName = `-- name: ListClubsByName :many
+SELECT id, name, host_player_id, join_code, created_at, updated_at FROM clubs WHERE lower(name) = lower($1) ORDER BY created_at
+`
+
+func (q *Queries) ListClubsByName(ctx context.Context, lower string) ([]Club, error) {
+	rows, err := q.db.Query(ctx, listClubsByName, lower)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Club{}
+	for rows.Next() {
+		var i Club
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.HostPlayerID,
+			&i.JoinCode,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setClubMemberGrade = `-- name: SetClubMemberGrade :one
+UPDATE club_members SET grade = $1
+WHERE club_id = $2 AND player_id = $3
+RETURNING id, club_id, player_id, role, joined_at, grade
+`
+
+type SetClubMemberGradeParams struct {
+	Grade    pgtype.Text `json:"grade"`
+	ClubID   uuid.UUID   `json:"club_id"`
+	PlayerID uuid.UUID   `json:"player_id"`
+}
+
+func (q *Queries) SetClubMemberGrade(ctx context.Context, arg SetClubMemberGradeParams) (ClubMember, error) {
+	row := q.db.QueryRow(ctx, setClubMemberGrade, arg.Grade, arg.ClubID, arg.PlayerID)
+	var i ClubMember
+	err := row.Scan(
+		&i.ID,
+		&i.ClubID,
+		&i.PlayerID,
+		&i.Role,
+		&i.JoinedAt,
+		&i.Grade,
+	)
+	return i, err
+}
+
 const updateClubMemberRole = `-- name: UpdateClubMemberRole :one
 UPDATE club_members SET role = $3
 WHERE club_id = $1 AND player_id = $2
-RETURNING id, club_id, player_id, role, joined_at
+RETURNING id, club_id, player_id, role, joined_at, grade
 `
 
 type UpdateClubMemberRoleParams struct {
@@ -199,6 +311,7 @@ func (q *Queries) UpdateClubMemberRole(ctx context.Context, arg UpdateClubMember
 		&i.PlayerID,
 		&i.Role,
 		&i.JoinedAt,
+		&i.Grade,
 	)
 	return i, err
 }

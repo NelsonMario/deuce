@@ -89,6 +89,7 @@ func NewApp(d Deps) *fiber.App {
 	whatsapp := v1.Group("/whatsapp")
 	whatsapp.Get("/status", requireAuth, d.Handlers.WhatsApp.GetStatus)
 	whatsapp.Get("/qr", requireAuth, d.Handlers.WhatsApp.GetQR)
+	whatsapp.Get("/groups", requireAuth, d.Handlers.WhatsApp.GetGroups)
 
 	players := v1.Group("/players")
 	players.Post("/batch", requireAuth, d.Handlers.GetPlayersBatch)

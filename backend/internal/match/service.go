@@ -538,12 +538,12 @@ func (s *Service) ConfirmManual(ctx context.Context, in ConfirmManualInput) (Mat
 	return result, nil
 }
 
+// validateFormatGenders enforces the single-gender formats. MIXED_DOUBLES
+// is open to any gender mix, matching automatic matchmaking (see
+// matchmaking.eligibleForFormat), so manual and automatic matches follow
+// the same rule.
 func validateFormatGenders(format Format, teamA, teamB [2]matchmaking.Gender) error {
 	switch format {
-	case MixedDoubles:
-		if !validMixedTeam(teamA[0], teamA[1]) || !validMixedTeam(teamB[0], teamB[1]) {
-			return apperr.Validation("mixed doubles requires one male and one female per team")
-		}
 	case MenDoubles:
 		if teamA[0] != matchmaking.Male || teamA[1] != matchmaking.Male || teamB[0] != matchmaking.Male || teamB[1] != matchmaking.Male {
 			return apperr.Validation("men's doubles requires all male players")
@@ -554,10 +554,6 @@ func validateFormatGenders(format Format, teamA, teamB [2]matchmaking.Gender) er
 		}
 	}
 	return nil
-}
-
-func validMixedTeam(a, b matchmaking.Gender) bool {
-	return (a == matchmaking.Male && b == matchmaking.Female) || (a == matchmaking.Female && b == matchmaking.Male)
 }
 
 func requireDistinct(ids []uuid.UUID) error {
@@ -641,15 +637,8 @@ func (s *Service) UpdateRoster(ctx context.Context, in UpdateRosterInput) (Match
 			}
 			genders[id] = matchmaking.Gender(p.Gender)
 		}
-		// Automatic generation treats MIXED_DOUBLES as open to any gender
-		// mix (see matchmaking.eligibleForFormat), so auto-generated "mixed"
-		// matches may not have one man and one woman per team. Holding a
-		// roster edit to the strict rule would make those matches
-		// uneditable; only the single-gender formats are enforced here.
-		if Format(m.Format) != MixedDoubles {
-			if err := validateFormatGenders(Format(m.Format), [2]matchmaking.Gender{genders[in.TeamA[0]], genders[in.TeamA[1]]}, [2]matchmaking.Gender{genders[in.TeamB[0]], genders[in.TeamB[1]]}); err != nil {
-				return err
-			}
+		if err := validateFormatGenders(Format(m.Format), [2]matchmaking.Gender{genders[in.TeamA[0]], genders[in.TeamA[1]]}, [2]matchmaking.Gender{genders[in.TeamB[0]], genders[in.TeamB[1]]}); err != nil {
+			return err
 		}
 
 		// Handle removed players

@@ -22,17 +22,26 @@ type Repository interface {
 }
 
 type pgRepository struct {
-	pool     *pgxpool.Pool
-	groupJID string
+	pool   *pgxpool.Pool
+	config ConfigStore
 }
 
-func NewRepository(pool *pgxpool.Pool, groupJID string) *pgRepository {
-	return &pgRepository{pool: pool, groupJID: groupJID}
+func NewRepository(pool *pgxpool.Pool, config ConfigStore) *pgRepository {
+	return &pgRepository{pool: pool, config: config}
 }
 
 // Enqueue implements match.AnnouncementOutbox. The insert uses the match
 // transaction, so a committed assignment always has a durable group message.
+// The target is the announcement group configured at enqueue time; with
+// none set up yet, the lineup is simply not announced.
 func (r *pgRepository) Enqueue(ctx context.Context, tx pgx.Tx, announcement match.Announcement) error {
+	cfg, err := r.config.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if cfg.AnnounceGroup == "" {
+		return nil
+	}
 	body, err := json.Marshal(Announcement{CourtName: announcement.CourtName, Format: announcement.Format, TeamA: announcement.TeamA[:], TeamB: announcement.TeamB[:]})
 	if err != nil {
 		return fmt.Errorf("marshal announcement: %w", err)
@@ -40,7 +49,7 @@ func (r *pgRepository) Enqueue(ctx context.Context, tx pgx.Tx, announcement matc
 	_, err = tx.Exec(ctx, `
 		INSERT INTO whatsapp_group_outbox (session_id, match_id, group_jid, payload)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (match_id) DO NOTHING`, announcement.SessionID, announcement.MatchID, r.groupJID, body)
+		ON CONFLICT (match_id) DO NOTHING`, announcement.SessionID, announcement.MatchID, cfg.AnnounceGroup, body)
 	return err
 }
 

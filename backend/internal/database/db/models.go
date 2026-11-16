@@ -452,6 +452,7 @@ type ClubMember struct {
 	PlayerID uuid.UUID          `json:"player_id"`
 	Role     ClubMemberRole     `json:"role"`
 	JoinedAt pgtype.Timestamptz `json:"joined_at"`
+	Grade    pgtype.Text        `json:"grade"`
 }
 
 type Court struct {
@@ -545,6 +546,14 @@ type SessionPlayer struct {
 	Losses                    int32               `json:"losses"`
 	CreatedAt                 pgtype.Timestamptz  `json:"created_at"`
 	UpdatedAt                 pgtype.Timestamptz  `json:"updated_at"`
+}
+
+type WhatsappBotConfig struct {
+	ID               int16              `json:"id"`
+	ClubID           pgtype.UUID        `json:"club_id"`
+	AdminGroupJid    pgtype.Text        `json:"admin_group_jid"`
+	AnnounceGroupJid pgtype.Text        `json:"announce_group_jid"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
 type WhatsappGroupOutbox struct {

@@ -63,3 +63,14 @@ SET team = sqlc.arg(team)
 WHERE match_id = sqlc.arg(match_id) AND player_id = sqlc.arg(player_id)::uuid
 RETURNING *;
 
+
+-- name: GetSessionRatingSummary :many
+-- Each player's rating before their first and after their last finished
+-- match of a session, for the end-of-session recap.
+SELECT mp.player_id::uuid AS player_id,
+       (array_agg(mp.rating_before ORDER BY m.ended_at ASC))[1]::float8 AS rating_start,
+       (array_agg(mp.rating_after ORDER BY m.ended_at DESC))[1]::float8 AS rating_end
+FROM match_players mp
+JOIN matches m ON m.id = mp.match_id
+WHERE m.session_id = $1 AND m.status = 'FINISHED' AND mp.player_id IS NOT NULL
+GROUP BY mp.player_id;

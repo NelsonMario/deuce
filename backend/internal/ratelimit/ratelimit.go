@@ -41,6 +41,7 @@ type Limiter interface {
 type redisCommander interface {
 	Incr(ctx context.Context, key string) *redis.IntCmd
 	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
+	TTL(ctx context.Context, key string) *redis.DurationCmd
 }
 
 // RedisLimiter is the real implementation, backed by a shared Redis client.
@@ -72,14 +73,26 @@ func (l *RedisLimiter) Allow(ctx context.Context, key string) bool {
 	}
 	if count == 1 {
 		// First hit in this window: arm the expiry so the counter resets.
-		// Best-effort — if this fails the key may live longer than Window
-		// (worst case: briefly stricter, never a full outage), so it's not
-		// treated as a reason to reject the request.
-		if err := l.client.Expire(ctx, key, l.window).Err(); err != nil {
-			l.logger.Warn("ratelimit_expire_failed", "key", key, "error", err)
+		// A failure here is not a reason to reject the request.
+		l.arm(ctx, key)
+	} else if count > l.max {
+		// INCR and EXPIRE are separate calls: if the first-hit EXPIRE ever
+		// failed (e.g. a timeout), the key has no TTL, keeps counting
+		// forever, and blocks its caller permanently. Over-limit requests
+		// therefore re-arm a missing TTL, so a stuck key recovers within
+		// one window.
+		if ttl, err := l.client.TTL(ctx, key).Result(); err == nil && ttl == -1 {
+			l.logger.Warn("ratelimit_key_without_ttl_repaired", "key", key, "count", count)
+			l.arm(ctx, key)
 		}
 	}
 	return count <= l.max
+}
+
+func (l *RedisLimiter) arm(ctx context.Context, key string) {
+	if err := l.client.Expire(ctx, key, l.window).Err(); err != nil {
+		l.logger.Warn("ratelimit_expire_failed", "key", key, "error", err)
+	}
 }
 
 // NoopLimiter is used when REDIS_HOST isn't configured (or Redis is

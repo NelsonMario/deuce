@@ -37,3 +37,19 @@ func (h *WhatsAppHandler) GetQR(c *fiber.Ctx) error {
 	}
 	return c.JSON(fiber.Map{"status": "WAITING"})
 }
+
+// GetGroups lists the groups the paired bot account belongs to, so the
+// operator can copy the right JID into WHATSAPP_GROUP_JID.
+func (h *WhatsAppHandler) GetGroups(c *fiber.Ctx) error {
+	if h.service == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"status": "DISABLED"})
+	}
+	if !h.service.IsLoggedIn() {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"status": "NOT_PAIRED"})
+	}
+	groups, err := h.service.JoinedGroups(c.UserContext())
+	if err != nil {
+		return HandleError(c, err)
+	}
+	return c.JSON(fiber.Map{"groups": groups})
+}

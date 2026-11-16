@@ -31,8 +31,13 @@ type Config struct {
 	RedisUsername string
 	RedisPassword string
 	RedisTLS      bool
-	// WhatsApp is optional. When these values are absent, the core Deuce API
-	// runs normally with no bot connection.
+	// WhatsAppEnabled starts the WhatsApp bot (default true). Its setup —
+	// club, admin group, announcement group — is done from WhatsApp and
+	// stored in the database, not here.
+	WhatsAppEnabled bool
+	// Legacy, optional: copied into the database once if set (see
+	// whatsapp.SeedLegacy). WHATSAPP_ADMIN_JIDS also authorizes commands in
+	// the old single-group mode until an admin group is set up.
 	WhatsAppGroupJID  string
 	WhatsAppAdminJIDs []string
 	WhatsAppClubID    string
@@ -62,6 +67,12 @@ func Load() (*Config, error) {
 			cfg.WhatsAppAdminJIDs = append(cfg.WhatsAppAdminJIDs, jid)
 		}
 	}
+
+	whatsappEnabled, err := strconv.ParseBool(getEnv("WHATSAPP_ENABLED", "true"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid WHATSAPP_ENABLED: %w", err)
+	}
+	cfg.WhatsAppEnabled = whatsappEnabled
 
 	redisTLS, err := strconv.ParseBool(getEnv("REDIS_TLS", "false"))
 	if err != nil {

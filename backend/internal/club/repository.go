@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"deuce/backend/internal/database/db"
@@ -27,6 +28,10 @@ type Repository interface {
 	FindMemberPlayerByName(ctx context.Context, clubID uuid.UUID, displayName string) (player.Player, error)
 	ListMembers(ctx context.Context, clubID uuid.UUID) ([]Member, error)
 	SetMemberRole(ctx context.Context, clubID, playerID uuid.UUID, role Role) (Member, error)
+	// SetMemberGrade stores (or clears, with nil) a member's grade.
+	SetMemberGrade(ctx context.Context, clubID, playerID uuid.UUID, grade *Grade) error
+	ListRoster(ctx context.Context, clubID uuid.UUID) ([]RosterEntry, error)
+	ListByName(ctx context.Context, name string) ([]Club, error)
 }
 
 type pgRepository struct {
@@ -133,6 +138,50 @@ func (r *pgRepository) SetMemberRole(ctx context.Context, clubID, playerID uuid.
 		return Member{}, fmt.Errorf("set club member role: %w", err)
 	}
 	return toMember(row), nil
+}
+
+func (r *pgRepository) SetMemberGrade(ctx context.Context, clubID, playerID uuid.UUID, grade *Grade) error {
+	g := pgtype.Text{}
+	if grade != nil {
+		g = pgtype.Text{String: string(*grade), Valid: true}
+	}
+	_, err := r.q.SetClubMemberGrade(ctx, db.SetClubMemberGradeParams{ClubID: clubID, PlayerID: playerID, Grade: g})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("set club member grade: %w", err)
+	}
+	return nil
+}
+
+func (r *pgRepository) ListRoster(ctx context.Context, clubID uuid.UUID) ([]RosterEntry, error) {
+	rows, err := r.q.ListClubRoster(ctx, clubID)
+	if err != nil {
+		return nil, fmt.Errorf("list club roster: %w", err)
+	}
+	out := make([]RosterEntry, 0, len(rows))
+	for _, row := range rows {
+		e := RosterEntry{PlayerID: row.PlayerID, DisplayName: row.DisplayName, Gender: player.Gender(row.Gender), Rating: row.Rating}
+		if row.Grade.Valid {
+			g := Grade(row.Grade.String)
+			e.Grade = &g
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+func (r *pgRepository) ListByName(ctx context.Context, name string) ([]Club, error) {
+	rows, err := r.q.ListClubsByName(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("list clubs by name: %w", err)
+	}
+	out := make([]Club, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toClub(row))
+	}
+	return out, nil
 }
 
 func toClub(row db.Club) Club {

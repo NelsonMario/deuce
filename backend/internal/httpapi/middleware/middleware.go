@@ -4,6 +4,7 @@
 package middleware
 
 import (
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -95,11 +96,25 @@ func Logging(logger *slog.Logger) fiber.Handler {
 		start := time.Now()
 		err := c.Next()
 		status := c.Response().StatusCode()
+		// An error returned up the chain (e.g. RATE_LIMITED) is only turned
+		// into a response by the app's ErrorHandler after this middleware
+		// returns, so the response still says 200 here. Log the status the
+		// client will actually receive.
+		if err != nil {
+			status = fiber.StatusInternalServerError
+			var fe *fiber.Error
+			if appErr, ok := apperr.As(err); ok {
+				status = appErr.Status
+			} else if errors.As(err, &fe) {
+				status = fe.Code
+			}
+		}
 
 		attrs := []any{
 			"request_id", c.GetRespHeader(fiber.HeaderXRequestID),
 			"method", c.Method(),
 			"path", c.Path(),
+			"ip", c.IP(),
 			"status", status,
 			"duration_ms", time.Since(start).Milliseconds(),
 		}

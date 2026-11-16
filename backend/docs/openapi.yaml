@@ -753,6 +753,118 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Match' }
 
+  /matches/{matchId}/cancel:
+    post:
+      tags: [matches]
+      security: [{ PlayerToken: [] }]
+      summary: Cancel an unfinished match (host only)
+      description: Deletes the match, frees its court and puts its players back to WAITING.
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: cancelled }
+                  match_id: { type: string, format: uuid }
+
+  /matches/{matchId}/roster:
+    put:
+      tags: [matches]
+      security: [{ PlayerToken: [] }]
+      summary: Swap or substitute players in an unfinished match (host only)
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_a, team_b]
+              properties:
+                team_a: { type: array, minItems: 2, maxItems: 2, items: { type: string, format: uuid } }
+                team_b: { type: array, minItems: 2, maxItems: 2, items: { type: string, format: uuid } }
+                removed_player_statuses:
+                  type: object
+                  description: Status for players taken out of the match, keyed by player id (default BREAK).
+                  additionalProperties: { type: string, enum: [WAITING, BREAK, ENDED] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Match' }
+
+  /whatsapp/status:
+    get:
+      tags: [whatsapp]
+      security: [{ PlayerToken: [] }]
+      summary: Bot connection and setup state
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [DISCONNECTED, CONNECTING, CONNECTED, PAIRING_REQUIRED, DISABLED] }
+                  is_connected: { type: boolean }
+                  is_logged_in: { type: boolean }
+                  pending_announcements: { type: integer }
+                  club_configured: { type: boolean }
+                  admin_group_configured: { type: boolean }
+                  announce_group_configured: { type: boolean }
+
+  /whatsapp/qr:
+    get:
+      tags: [whatsapp]
+      security: [{ PlayerToken: [] }]
+      summary: Current pairing code for the bot account
+      description: >
+        READY returns the latest code (render it as a QR code and scan it under
+        WhatsApp → Linked devices). WAITING means a code is being generated;
+        retry in a few seconds. PAIRED means the bot is already linked.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [READY, WAITING, PAIRED] }
+                  qr: { type: string }
+        '503': { description: Bot disabled }
+
+  /whatsapp/groups:
+    get:
+      tags: [whatsapp]
+      security: [{ PlayerToken: [] }]
+      summary: Groups the paired bot account belongs to
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        jid: { type: string, example: 120363012345678901@g.us }
+                        name: { type: string }
+        '409': { description: Bot not paired yet }
+        '503': { description: Bot disabled }
+
   /players/{playerId}:
     get:
       tags: [players]
