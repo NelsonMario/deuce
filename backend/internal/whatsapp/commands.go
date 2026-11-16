@@ -14,6 +14,7 @@ import (
 
 	"deuce/backend/internal/apperr"
 	"deuce/backend/internal/club"
+	"deuce/backend/internal/database/db"
 	"deuce/backend/internal/gemini"
 	"deuce/backend/internal/match"
 	"deuce/backend/internal/player"
@@ -165,7 +166,9 @@ func (c *GroupCommands) Handle(ctx context.Context, req Request) (string, error)
 	case "done":
 		return c.done(ctx, req, sess, cmd.Args)
 	case "cancel":
-		return c.cancel(ctx, sess)
+		return c.cancel(ctx, sess, cmd.Args)
+	case "set":
+		return c.setPlayers(ctx, sess, cmd.Rest)
 	}
 	return "", nil
 }
@@ -763,10 +766,29 @@ func (c *GroupCommands) resultLine(ctx context.Context, matchID uuid.UUID, score
 	return fmt.Sprintf("%s beat %s %d–%d", strings.Join(winners, " / "), strings.Join(losers, " / "), hi, lo)
 }
 
-func (c *GroupCommands) cancel(ctx context.Context, sess session.Session) (string, error) {
+func (c *GroupCommands) cancel(ctx context.Context, sess session.Session, args []string) (string, error) {
 	matches, err := c.matches.ListBySession(ctx, sess.ID)
 	if err != nil {
 		return "", err
+	}
+	if len(args) > 0 {
+		courtNo, err := strconv.Atoi(args[0])
+		if err != nil || courtNo < 1 {
+			return "Usage: `cancel [court]`", nil
+		}
+		court, err := c.courtByNumber(ctx, sess, courtNo)
+		if err != nil {
+			return "", err
+		}
+		if court == nil {
+			return fmt.Sprintf("⚠️ There is no Court %d.", courtNo), nil
+		}
+		for _, m := range matches {
+			if m.CourtID == court.ID && (m.Status == match.StatusCreated || m.Status == match.StatusPlaying) {
+				return result(fmt.Sprintf("↩️ %s match cancelled. Its players are back in the queue.", court.Name), c.matches.CancelMatch(ctx, m.ID))
+			}
+		}
+		return fmt.Sprintf("ℹ️ No active match to cancel on %s.", court.Name), nil
 	}
 	// ListBySession is newest first, so this cancels the latest match.
 	for _, m := range matches {
@@ -1017,6 +1039,156 @@ func (c *GroupCommands) recap(ctx context.Context, clubID uuid.UUID, sess sessio
 	return b.String(), nil
 }
 
+// setPlayers swaps two players in the session. Either may be waiting or on
+// any court (same or different); removed players return to the waiting queue.
+func (c *GroupCommands) setPlayers(ctx context.Context, sess session.Session, rest string) (string, error) {
+	names := splitNames(rest)
+	if len(names) != 2 {
+		return "Usage: `set <name1> <name2>` (swap a player on court with someone waiting, or swap two players).", nil
+	}
+	sp1, p1, err := c.findSessionPlayer(ctx, sess, names[0])
+	if err != nil {
+		return "", err
+	}
+	if sp1 == nil || p1.ID == uuid.Nil {
+		return fmt.Sprintf("⚠️ No player named %q in this session.", names[0]), nil
+	}
+	sp2, p2, err := c.findSessionPlayer(ctx, sess, names[1])
+	if err != nil {
+		return "", err
+	}
+	if sp2 == nil || p2.ID == uuid.Nil {
+		return fmt.Sprintf("⚠️ No player named %q in this session.", names[1]), nil
+	}
+	if p1.ID == p2.ID {
+		return "⚠️ Choose two different players.", nil
+	}
+	if sp1.Status == session.PlayerEnded || sp2.Status == session.PlayerEnded {
+		return "⚠️ Both players must be in the rotation (use `in` to bring someone back).", nil
+	}
+	matches, err := c.matches.ListBySession(ctx, sess.ID)
+	if err != nil {
+		return "", err
+	}
+	active := make([]match.Match, 0)
+	for _, m := range matches {
+		if m.Status == match.StatusCreated || m.Status == match.StatusPlaying {
+			active = append(active, m)
+		}
+	}
+	type loc struct {
+		match *match.Match
+		teamA [2]uuid.UUID
+		teamB [2]uuid.UUID
+	}
+	findLoc := func(pid uuid.UUID) (*loc, error) {
+		for i := range active {
+			m := &active[i]
+			mps, err := c.matches.ListPlayers(ctx, m.ID)
+			if err != nil {
+				return nil, err
+			}
+			var a, b []uuid.UUID
+			for _, mp := range mps {
+				if mp.PlayerID == nil {
+					continue
+				}
+				if mp.Team == match.TeamA {
+					a = append(a, *mp.PlayerID)
+				} else {
+					b = append(b, *mp.PlayerID)
+				}
+			}
+			if len(a) == 2 && len(b) == 2 {
+				if a[0] == pid || a[1] == pid || b[0] == pid || b[1] == pid {
+					return &loc{match: m, teamA: [2]uuid.UUID{a[0], a[1]}, teamB: [2]uuid.UUID{b[0], b[1]}}, nil
+				}
+			}
+		}
+		return nil, nil
+	}
+	l1, err := findLoc(p1.ID)
+	if err != nil {
+		return "", err
+	}
+	l2, err := findLoc(p2.ID)
+	if err != nil {
+		return "", err
+	}
+
+	replaceIn := func(l *loc, out, in uuid.UUID) ([2]uuid.UUID, [2]uuid.UUID) {
+		a, b := l.teamA, l.teamB
+		for i := 0; i < 2; i++ {
+			if a[i] == out {
+				a[i] = in
+			}
+			if b[i] == out {
+				b[i] = in
+			}
+		}
+		return a, b
+	}
+
+	switch {
+	case l1 == nil && l2 == nil:
+		return "ℹ️ Both players are already waiting.", nil
+	case l1 != nil && l2 == nil:
+		a, b := replaceIn(l1, p1.ID, p2.ID)
+		_, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{
+			MatchID:               l1.match.ID,
+			TeamA:                 a,
+			TeamB:                 b,
+			RemovedPlayerStatuses: map[uuid.UUID]db.SessionPlayerStatus{p1.ID: db.SessionPlayerStatusWAITING},
+		})
+		if err != nil {
+			return "⚠️ Could not move player: " + userMessage(err), nil
+		}
+		return fmt.Sprintf("✅ %s is now playing instead of %s (back in queue).", p2.DisplayName, p1.DisplayName), nil
+	case l1 == nil && l2 != nil:
+		a, b := replaceIn(l2, p2.ID, p1.ID)
+		_, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{
+			MatchID:               l2.match.ID,
+			TeamA:                 a,
+			TeamB:                 b,
+			RemovedPlayerStatuses: map[uuid.UUID]db.SessionPlayerStatus{p2.ID: db.SessionPlayerStatusWAITING},
+		})
+		if err != nil {
+			return "⚠️ Could not move player: " + userMessage(err), nil
+		}
+		return fmt.Sprintf("✅ %s is now playing instead of %s (back in queue).", p1.DisplayName, p2.DisplayName), nil
+	case l1.match.ID == l2.match.ID:
+		// swap within same match (teams/positions)
+		a, b := l1.teamA, l1.teamB
+		swapID := func(x [2]uuid.UUID) [2]uuid.UUID {
+			for i := 0; i < 2; i++ {
+				if x[i] == p1.ID {
+					x[i] = p2.ID
+				} else if x[i] == p2.ID {
+					x[i] = p1.ID
+				}
+			}
+			return x
+		}
+		a, b = swapID(a), swapID(b)
+		_, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{MatchID: l1.match.ID, TeamA: a, TeamB: b})
+		if err != nil {
+			return "⚠️ Could not swap players: " + userMessage(err), nil
+		}
+		return fmt.Sprintf("✅ Swapped %s and %s.", p1.DisplayName, p2.DisplayName), nil
+	default:
+		a1, b1 := replaceIn(l1, p1.ID, p2.ID)
+		a2, b2 := replaceIn(l2, p2.ID, p1.ID)
+		if _, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{MatchID: l1.match.ID, TeamA: a1, TeamB: b1}); err != nil {
+			return "⚠️ Could not swap players: " + userMessage(err), nil
+		}
+		if _, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{MatchID: l2.match.ID, TeamA: a2, TeamB: b2}); err != nil {
+			return "⚠️ Players were partially swapped (one court updated). Check status and adjust manually.", nil
+		}
+		return fmt.Sprintf("✅ Swapped %s and %s across courts.", p1.DisplayName, p2.DisplayName), nil
+	}
+}
+
+
 // ---------------------------------------------------------------- helpers
 
 // announce posts to the announcement group unless the command was typed
@@ -1192,7 +1364,8 @@ func helpText() string {
 		"`courts <n>` → set number of courts",
 		"`next` → fill the next free court",
 		"`done <court> <score>` → record result",
-		"`cancel` → undo the latest match",
+		"`cancel [court]` → undo a match (latest if omitted)",
+		"`set <name1> <name2>` → swap two players (court/bench)",
 		"",
 		"*🎯 HOST*",
 		"`auto` → bot fills courts",

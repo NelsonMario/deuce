@@ -22,13 +22,13 @@ type Command struct {
 // word, so conversation such as "next week?" or "stop it lol" never acts.
 var noArgCommands = map[string]bool{
 	"help": true, "status": true, "start": true, "stop": true,
-	"next": true, "cancel": true, "auto": true, "manual": true,
+	"next": true, "auto": true, "manual": true,
 }
 
 // argCommands take arguments; malformed arguments get a usage reply.
 var argCommands = map[string]bool{
 	"member": true, "grade": true, "suggest": true, "assign": true,
-	"setup": true, "chat": true,
+	"setup": true, "chat": true, "set": true,
 }
 
 // needArgCommands only act when they have arguments: a bare "in" or "out"
@@ -154,6 +154,15 @@ func ParseCommandWithPrefix(text, prefix string) (cmd Command, ok bool) {
 			return Command{}, false
 		}
 		return Command{Name: name, Args: args, Rest: rest}, true
+	case "cancel":
+		// "cancel" cancels the latest match; "cancel 2" cancels Court 2.
+		if len(args) == 0 {
+			return Command{Name: name}, true
+		}
+		if len(args) == 1 && isInt(args[0]) {
+			return Command{Name: name, Args: args, Rest: rest}, true
+		}
+		return Command{}, false
 	}
 	return Command{}, false
 }

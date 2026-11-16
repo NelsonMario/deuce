@@ -143,7 +143,8 @@ the whole message (`next`, not "next please").
 | Courts | `courts <n>` | Set the number of courts (`courts` alone lists them) |
 | | `next` | Fill the next free court automatically |
 | | `done <court> <a>-<b>` | Record a result and free the court |
-| | `cancel` | Cancel the latest unfinished match |
+| | `cancel [court]` | Cancel an unfinished match (latest if omitted) |
+| | `set <name1> <name2>` | Swap/move players between court and waiting bench |
 | Host | `auto` / `manual` | Bot fills courts / you pick lineups |
 | | `suggest <4 names>` | Most balanced split |
 | | `assign <court> A B vs C D` | Put an exact lineup on a court |

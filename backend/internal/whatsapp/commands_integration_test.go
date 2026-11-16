@@ -204,6 +204,9 @@ func TestIntegration_FullSession(t *testing.T) {
 	expect(t, "in on court", f.admin(t, "assign 1 Alice Bob vs Cara Dan"), "Court 1")
 	expect(t, "already on court", f.admin(t, "in Alice"), "Already on court: Alice")
 	expect(t, "cancel", f.admin(t, "cancel"), "cancelled")
+	expect(t, "in for set", f.admin(t, "assign 1 Alice Bob vs Cara Dan"), "Court 1")
+	expect(t, "set bench", f.admin(t, "set Alice Eve"), "now playing instead of Alice")
+	expect(t, "cancel court", f.admin(t, "cancel 1"), "Court 1 match cancelled")
 	expect(t, "next", f.admin(t, "next"), "assigned")
 
 	status := f.admin(t, "status")
