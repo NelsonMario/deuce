@@ -97,23 +97,15 @@ TOKEN='<host.token>'
 ### 3. Pair the bot (once)
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/whatsapp/qr
+./scripts/whatsapp-qr.sh '<host.token>'
 ```
 
-If it returns `{"status":"PAIRED"}`, skip to step 4. Otherwise open the QR
-code:
-
-```bash
-CODE=$(curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/whatsapp/qr \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("qr",""))')
-npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
-```
-
-On the **bot phone**: WhatsApp → Settings → Linked devices → Link a device,
-and scan. Codes expire after about 20 seconds; if the scan fails (or the
-first call said `WAITING`), run it again. Repeat the first command until it
-returns `PAIRED`. The pairing is stored in the database and survives
-restarts.
+It opens the QR code (or says the bot is already paired). On the **bot
+phone**: WhatsApp → Settings → Linked devices → Link a device, and scan.
+Codes expire after about 20 seconds; if the scan fails, run the script
+again. For a backend that isn't on localhost, pass its URL:
+`./scripts/whatsapp-qr.sh '<host.token>' https://api.example.com`. The pairing is stored in
+the database and survives restarts.
 
 ### 4. Set up the groups (on the bot phone)
 

@@ -113,7 +113,7 @@ func main() {
 				logger.Warn("whatsapp_legacy_config_seed_failed", "error", err)
 			}
 		}
-		client := whatsapp.NewWhatsmeowClient(deviceStore, logger)
+		client := whatsapp.NewWhatsmeowClient(container, deviceStore, logger)
 		repo := whatsapp.NewRepository(pool, configStore)
 		announcer := whatsapp.NewGroupAnnouncer(client, configStore)
 		commands := whatsapp.NewGroupCommands(configStore, clubService, sessionService, matchService, matchReadRepo, playerRepo, announcer)

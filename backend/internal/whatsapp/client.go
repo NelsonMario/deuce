@@ -22,7 +22,15 @@ import (
 const qrValidity = 60 * time.Second
 
 type WhatsmeowClient struct {
+	// container creates a fresh device after the bot is unlinked: whatsmeow
+	// marks the old device as deleted and refuses to connect with it again.
+	container DeviceContainer
+
+	// clientMu guards client and handlers; the client is replaced on unlink.
+	clientMu sync.RWMutex
 	client   *whatsmeow.Client
+	handlers []func(evt interface{})
+
 	logger   *slog.Logger
 	statusMu sync.RWMutex
 	status   ConnectionStatus
@@ -35,30 +43,68 @@ type WhatsmeowClient struct {
 	pairing bool
 }
 
-func NewWhatsmeowClient(deviceStore *store.Device, logger *slog.Logger) *WhatsmeowClient {
-	waLogger := waLog.Stdout("whatsmeow", "INFO", true)
-	cli := whatsmeow.NewClient(deviceStore, waLogger)
+// DeviceContainer creates new whatsmeow devices (sqlstore.Container).
+type DeviceContainer interface {
+	NewDevice() *store.Device
+}
 
+func NewWhatsmeowClient(container DeviceContainer, deviceStore *store.Device, logger *slog.Logger) *WhatsmeowClient {
 	wc := &WhatsmeowClient{
-		client: cli,
-		logger: logger,
-		status: StatusDisconnected,
+		container: container,
+		logger:    logger,
+		status:    StatusDisconnected,
 	}
-
-	cli.AddEventHandler(wc.handleInternalEvents)
+	wc.client = wc.newClient(deviceStore)
 	return wc
 }
 
+func (w *WhatsmeowClient) newClient(device *store.Device) *whatsmeow.Client {
+	cli := whatsmeow.NewClient(device, waLog.Stdout("whatsmeow", "INFO", true))
+	cli.AddEventHandler(w.handleInternalEvents)
+	for _, h := range w.handlers {
+		cli.AddEventHandler(h)
+	}
+	return cli
+}
+
+func (w *WhatsmeowClient) cli() *whatsmeow.Client {
+	w.clientMu.RLock()
+	defer w.clientMu.RUnlock()
+	return w.client
+}
+
+// unpaired reports whether the bot has no usable login: never paired, or
+// unlinked from the phone (whatsmeow then deletes the device for good).
+func (w *WhatsmeowClient) unpaired() bool {
+	st := w.cli().Store
+	return st.ID == nil || st.Deleted
+}
+
+// resetDevice swaps in a client with a fresh device so pairing can start
+// again after the bot was unlinked, without restarting the backend.
+func (w *WhatsmeowClient) resetDevice() {
+	w.clientMu.Lock()
+	old := w.client
+	w.client = w.newClient(w.container.NewDevice())
+	w.clientMu.Unlock()
+	old.Disconnect()
+	w.logger.Info("whatsmeow_device_reset")
+}
+
 func (w *WhatsmeowClient) AddEventHandler(handler func(evt interface{})) {
-	w.client.AddEventHandler(handler)
+	w.clientMu.Lock()
+	w.handlers = append(w.handlers, handler)
+	cli := w.client
+	w.clientMu.Unlock()
+	cli.AddEventHandler(handler)
 }
 
 func (w *WhatsmeowClient) IsConnected() bool {
-	return w.client.IsConnected()
+	return w.cli().IsConnected()
 }
 
 func (w *WhatsmeowClient) IsLoggedIn() bool {
-	return w.client.IsLoggedIn()
+	return w.cli().IsLoggedIn()
 }
 
 func (w *WhatsmeowClient) GetStatus() ConnectionStatus {
@@ -76,13 +122,13 @@ func (w *WhatsmeowClient) setStatus(s ConnectionStatus) {
 func (w *WhatsmeowClient) Connect() error {
 	w.setStatus(StatusConnecting)
 
-	if w.client.Store.ID == nil {
+	if w.unpaired() {
 		return w.startPairing()
 	}
 
 	// Already paired: connect directly. whatsmeow reconnects by itself after
 	// a connection has been established once.
-	if err := w.client.Connect(); err != nil {
+	if err := w.cli().Connect(); err != nil {
 		w.setStatus(StatusDisconnected)
 		return fmt.Errorf("connect client: %w", err)
 	}
@@ -110,14 +156,19 @@ func (w *WhatsmeowClient) startPairing() error {
 		w.qrMu.Unlock()
 	}
 
+	if w.cli().Store.Deleted {
+		w.resetDevice()
+	}
+	cli := w.cli()
+
 	w.setStatus(StatusPairingRequired)
-	qrChan, err := w.client.GetQRChannel(context.Background())
+	qrChan, err := cli.GetQRChannel(context.Background())
 	if err != nil {
 		done()
 		w.setStatus(StatusDisconnected)
 		return fmt.Errorf("get qr channel: %w", err)
 	}
-	if err := w.client.Connect(); err != nil {
+	if err := cli.Connect(); err != nil {
 		done()
 		w.setStatus(StatusDisconnected)
 		return fmt.Errorf("connect client: %w", err)
@@ -139,7 +190,7 @@ func (w *WhatsmeowClient) startPairing() error {
 				// "timeout" or a pairing error: the channel closes next.
 				w.logger.Warn("whatsmeow_qr_pairing_ended", "event", evt.Event)
 				w.setStatus(StatusPairingRequired)
-				w.client.Disconnect()
+				cli.Disconnect()
 			}
 		}
 	}()
@@ -147,7 +198,7 @@ func (w *WhatsmeowClient) startPairing() error {
 }
 
 func (w *WhatsmeowClient) Disconnect() {
-	w.client.Disconnect()
+	w.cli().Disconnect()
 	w.setStatus(StatusDisconnected)
 }
 
@@ -162,7 +213,7 @@ func (w *WhatsmeowClient) CurrentQR() (string, bool) {
 	if code != "" && time.Since(at) < qrValidity {
 		return code, true
 	}
-	if w.client.Store.ID == nil && !pairing {
+	if w.unpaired() && !pairing {
 		go func() {
 			if err := w.startPairing(); err != nil {
 				w.logger.Warn("whatsmeow_pairing_restart_failed", "error", err)
@@ -176,12 +227,12 @@ func (w *WhatsmeowClient) SendMessage(ctx context.Context, recipient types.JID, 
 	msg := &waE2E.Message{
 		Conversation: proto.String(text),
 	}
-	_, err := w.client.SendMessage(ctx, recipient, msg)
+	_, err := w.cli().SendMessage(ctx, recipient, msg)
 	return err
 }
 
 func (w *WhatsmeowClient) JoinedGroups(ctx context.Context) ([]Group, error) {
-	groups, err := w.client.GetJoinedGroups(ctx)
+	groups, err := w.cli().GetJoinedGroups(ctx)
 	if err != nil {
 		return nil, err
 	}
