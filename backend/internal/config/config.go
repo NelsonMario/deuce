@@ -80,7 +80,7 @@ func Load() (*Config, error) {
 	cfg.WhatsAppEnabled = whatsappEnabled
 
 	cfg.GeminiAPIKey = strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
-	cfg.GeminiModel = getEnv("GEMINI_MODEL", "gemini-2.5-flash")
+	cfg.GeminiModel = getEnv("GEMINI_MODEL", "gemini-flash-latest")
 	cfg.GeminiPrefix = strings.TrimSpace(getEnv("GEMINI_PREFIX", "chat"))
 	if cfg.GeminiPrefix == "" {
 		cfg.GeminiPrefix = "chat"

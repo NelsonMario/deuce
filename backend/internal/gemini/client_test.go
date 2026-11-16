@@ -74,8 +74,8 @@ func TestClient_Interpret_Success(t *testing.T) {
 			if req.Method != http.MethodPost {
 				t.Errorf("expected POST, got %s", req.Method)
 			}
-			if req.URL.Query().Get("key") != "test-key" {
-				t.Errorf("expected key=test-key, got %s", req.URL.Query().Get("key"))
+			if req.Header.Get("x-goog-api-key") != "test-key" {
+				t.Errorf("expected x-goog-api-key=test-key, got %s", req.Header.Get("x-goog-api-key"))
 			}
 
 			return &http.Response{

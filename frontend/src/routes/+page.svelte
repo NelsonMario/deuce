@@ -19,7 +19,13 @@ REDIS_PASSWORD=
 REDIS_TLS=false
 
 # WhatsApp bot. Everything else about the bot is set up from WhatsApp.
-WHATSAPP_ENABLED=true`;
+WHATSAPP_ENABLED=true
+
+# Optional: Google Gemini API for natural language commands.
+GEMINI_API_KEY=your-api-key-here
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_PREFIX=chat
+GEMINI_MAX_RPM=10`;
 
 	const startSnippet = `docker compose run --rm migrate          # applies migrations 1-6
 docker compose up -d --build backend`;
@@ -49,6 +55,11 @@ in Alice Bob Cara Dan Eve
 done 1 21-15
 stop`;
 
+	const aiSnippet = `chat start session with 2 courts
+chat check in Alice, Bob, and Dan
+chat Alice and Bob won 21-17 on court 1
+chat who is waiting right now?`;
+
 	const recapSnippet = `📊 Session recap — 16 Nov · 8 matches
 Player     G W-L  Rating     Grd
 Alice      5 4-1 1452 +52   A
@@ -69,6 +80,7 @@ DROP TYPE IF EXISTS
 CASCADE;`;
 
 	const commands: { area: string; cmd: string; desc: string }[] = [
+		{ area: "AI", cmd: "chat <message>", desc: "Natural language commands (e.g. \"chat court 1 finished 21-15\")" },
 		{ area: "Session", cmd: "start", desc: "Start a session" },
 		{ area: "", cmd: "stop", desc: "End the session and post the recap" },
 		{ area: "", cmd: "status", desc: "Courts with lineups, who's waiting, latest results" },
@@ -97,6 +109,7 @@ CASCADE;`;
 		["setup", "Setting up the bot"],
 		["admins", "Admins and co-hosts"],
 		["session", "Running a session"],
+		["ai", "AI Natural Language"],
 		["commands", "Commands"],
 		["grades", "Grades and recap"],
 		["troubleshooting", "Troubleshooting"],
@@ -182,6 +195,9 @@ CASCADE;`;
 				<tr><td><code>PLAYER_TOKEN_SECRET</code></td><td>Secret used to hash API tokens.</td></tr>
 				<tr><td><code>REDIS_*</code></td><td>Optional. Shared rate limiting and locks; the backend runs without it.</td></tr>
 				<tr><td><code>WHATSAPP_ENABLED</code></td><td>Starts the bot (default <code>true</code>). Set <code>false</code> to run the API only.</td></tr>
+				<tr><td><code>GEMINI_API_KEY</code></td><td>Optional. Google Gemini API key for natural language commands.</td></tr>
+				<tr><td><code>GEMINI_PREFIX</code></td><td>Command trigger prefix (default <code>chat</code>, or symbols like <code>!</code>).</td></tr>
+				<tr><td><code>GEMINI_MAX_RPM</code></td><td>Free-tier rate limiter (default <code>10</code> requests/minute).</td></tr>
 			</tbody>
 		</table>
 		<p>
@@ -288,6 +304,37 @@ CASCADE;`;
 			for a balanced split and <code>assign 1 Alice Bob vs Cara Dan</code> to place it.
 			<code>auto</code> switches back.
 		</p>
+	</section>
+
+	<section id="ai">
+		<h2>AI Natural Language (Gemini)</h2>
+		<p>
+			Instead of memorizing exact command syntax, hosts can manage sessions using natural human language
+			with the <code>chat</code> prefix (or a custom prefix like <code>!</code>):
+		</p>
+		<pre><code>{aiSnippet}</code></pre>
+		<h3>Features</h3>
+		<ul>
+			<li>
+				<strong>Prefix quota protection:</strong> Only messages starting with <code>chat</code> (or your custom prefix)
+				trigger the Gemini API. Casual chatter between co-hosts in the admin group is ignored, preserving your free-tier quota (15 RPM).
+			</li>
+			<li>
+				<strong>Fuzzy name & typo resolution:</strong> If a host types a nickname or typo (e.g. <code>nels</code> or <code>nelsie</code> for registered member <code>Nelson</code>), Gemini automatically resolves it to the correct member in the roster.
+			</li>
+			<li>
+				<strong>Automatic court detection:</strong> Shorthand statements like <em>"Alice and Bob won 21-17"</em> automatically find which court Alice and Bob are playing on and generate <code>done &lt;court&gt; 21-17</code>.
+			</li>
+			<li>
+				<strong>Multi-action execution:</strong> Messages like <em>"start session with 2 courts and check in Alice and Bob"</em> automatically execute <code>start</code>, <code>courts 2</code>, and <code>in Alice Bob</code> sequentially.
+			</li>
+			<li>
+				<strong>Ambiguity safety:</strong> If an abbreviated name matches multiple members (e.g. "Nel" when both "Nelson" and "Nellie" exist), the bot will ask for clarification rather than guessing.
+			</li>
+			<li>
+				<strong>Multilingual:</strong> Supports English, Indonesian (e.g. <em>"lapangan 1 beres 21-18"</em>), and more.
+			</li>
+		</ul>
 	</section>
 
 	<section id="commands">

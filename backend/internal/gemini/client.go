@@ -85,7 +85,7 @@ type Client struct {
 
 func NewClient(apiKey, model string, maxRPM int) *Client {
 	if model == "" {
-		model = "gemini-2.5-flash"
+		model = "gemini-flash-latest"
 	}
 	if maxRPM <= 0 {
 		maxRPM = 10
@@ -94,7 +94,7 @@ func NewClient(apiKey, model string, maxRPM int) *Client {
 		apiKey:      strings.TrimSpace(apiKey),
 		model:       model,
 		baseURL:     "https://generativelanguage.googleapis.com",
-		httpClient:  &http.Client{Timeout: 20 * time.Second},
+		httpClient:  &http.Client{Timeout: 25 * time.Second},
 		rateLimiter: NewRateLimiter(maxRPM),
 	}
 }
@@ -245,12 +245,13 @@ func (c *Client) Interpret(ctx context.Context, input InterpretInput) (*Interpre
 		return nil, fmt.Errorf("marshal gemini request: %w", err)
 	}
 
-	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", c.baseURL, c.model, c.apiKey)
+	apiURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", c.baseURL, c.model)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("create gemini request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
