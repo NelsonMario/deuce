@@ -220,6 +220,7 @@ button {
 	font-size: 1rem;
 	font-weight: 600;
 	letter-spacing: -0.01em;
+	color: var(--text);
 	cursor: pointer;
 	/* Apple-style physical feedback: press scales in, release springs back. */
 	transition:
@@ -240,7 +241,7 @@ button {
 }
 
 .btn:disabled {
-	opacity: 0.4;
+	opacity: 0.55;
 	cursor: not-allowed;
 }
 
@@ -282,7 +283,7 @@ button {
 }
 
 .btn-ghost {
-	background: color-mix(in srgb, var(--bg-elevated-2) 70%, transparent);
+	background: color-mix(in srgb, var(--bg-elevated-2) 92%, transparent);
 	backdrop-filter: blur(12px);
 	-webkit-backdrop-filter: blur(12px);
 	border-color: var(--border);

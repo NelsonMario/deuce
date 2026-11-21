@@ -17,6 +17,11 @@
 	let loading = $state(false);
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 
+	let clubName = $state("");
+	let hostName = $state("Host");
+	let hostGender = $state<"MALE" | "FEMALE">("MALE");
+	let creating = $state(false);
+
 	const curlQr = $derived.by(() => {
 		const base = apiBase.replace(/\/$/, "") || "http://localhost:8080";
 		return `CODE=$(curl -s -H "Authorization: Bearer $TOKEN" \\
@@ -50,6 +55,40 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 			throw new Error(msg);
 		}
 		return body;
+	}
+
+	async function createClub() {
+		if (!clubName.trim() || !hostName.trim()) {
+			error = "Club name and host name are required.";
+			return;
+		}
+		creating = true;
+		error = "";
+		message = "";
+		try {
+			const res = await fetch(`${baseUrl()}/api/v1/clubs`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					club_name: clubName.trim(),
+					host_display_name: hostName.trim(),
+					host_gender: hostGender
+				})
+			});
+			const body = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				throw new Error(body?.error?.message || body?.message || `Request failed (${res.status})`);
+			}
+			const t = body?.host?.token;
+			if (!t) throw new Error("Token missing from response.");
+			token = String(t);
+			status = "NOT_PAIRED";
+			message = `Club created. Host token filled below (not saved).`;
+		} catch (e) {
+			error = e instanceof Error ? e.message : "Failed to create club.";
+		} finally {
+			creating = false;
+		}
 	}
 
 	async function renderQr(code: string) {
@@ -170,20 +209,45 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 
 <div class="container-wide page">
 	<p class="eyebrow">Operator setup</p>
-	<h1>Pair WhatsApp bot</h1>
+	<h1>Bot setup</h1>
 	<p class="lead muted">
-		Use your host token to fetch a pairing QR from the backend. Token stays in memory only on this page.
+		Create a club to get a host token, then pair the WhatsApp bot. Token stays in memory only.
 		<code>curl</code> remains the backup for headless/CORS/scripted setup.
 	</p>
 
 	<div class="grid">
 		<section class="card">
-			<h2>Connect</h2>
+			<h2>1. Create club / get token</h2>
 			<div class="field">
 				<label for="api-base">Backend API base URL</label>
 				<input id="api-base" class="input" bind:value={apiBase} placeholder="http://localhost:8080" autocomplete="off" />
-				<p class="hint">Use your backend origin. Browser requests need it allowed by backend <code>CORS_ORIGINS</code>.</p>
+				<p class="hint">Browser requests need this origin allowed by backend <code>CORS_ORIGINS</code>.</p>
 			</div>
+			<div class="row2">
+				<div class="field">
+					<label for="club-name">Club name</label>
+					<input id="club-name" class="input" bind:value={clubName} placeholder="Tiger Club" autocomplete="off" />
+				</div>
+				<div class="field">
+					<label for="host-name">Host name</label>
+					<input id="host-name" class="input" bind:value={hostName} placeholder="Host" autocomplete="off" />
+				</div>
+			</div>
+			<div class="field">
+				<label for="host-gender">Host gender</label>
+				<select id="host-gender" class="select" bind:value={hostGender}>
+					<option value="MALE">MALE</option>
+					<option value="FEMALE">FEMALE</option>
+				</select>
+			</div>
+			<div class="actions">
+				<button class="btn btn-ghost" type="button" onclick={createClub} disabled={creating || !clubName.trim() || !hostName.trim()}>
+					{creating ? "Creating..." : "Create club & fill token"}
+				</button>
+			</div>
+			<p class="hint">This calls <code>POST /api/v1/clubs</code> and fills <code>host.token</code> below. Token is not saved.</p>
+
+			<h2 class="mt">2. Pair bot</h2>
 			<div class="field">
 				<label for="token">Host token (Bearer)</label>
 				<div class="token-row">
@@ -199,6 +263,7 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 				<button class="btn btn-ghost" type="button" onclick={refreshStatus} disabled={loading || !token.trim()}>Refresh status</button>
 				<button class="btn btn-ghost" type="button" onclick={clearSensitive}>Clear</button>
 			</div>
+			<p class="hint">Already have a token? Skip step 1 and paste it directly.</p>
 
 			{#if error}<p class="msg err">{error}</p>{/if}
 			{#if message}<p class="msg">{message}</p>{/if}
@@ -262,10 +327,12 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 	.lead { max-width: 70ch; margin-bottom: 20px; line-height: 1.6; }
 	.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
 	h2 { font-size: 1.2rem; margin: 0 0 14px; }
+	.mt { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-soft); }
 	h3 { font-size: 1rem; margin: 18px 0 8px; }
 	.field { margin-bottom: 14px; }
+	.row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 	label { display:block; font-size:.85rem; color: var(--text-dim); font-weight:600; margin-bottom:6px; }
-	.input { width: 100%; }
+	.input, .select { width: 100%; }
 	.hint { color: var(--text-faint); font-size: .82rem; margin-top: 6px; line-height: 1.45; }
 	.token-row { display:flex; gap:8px; }
 	.token-row .input { flex:1; }
@@ -291,5 +358,5 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 	th,td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--border-soft); vertical-align:top; }
 	th { color: var(--text-dim); font-size:.83rem; }
 	.muted { color: var(--text-dim); }
-	@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+	@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .row2 { grid-template-columns: 1fr; } }
 </style>
