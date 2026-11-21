@@ -16,9 +16,10 @@
 		<div class="container-wide topbar-inner">
 			<a href="/" class="brand">deuce<span class="brand-dot">.</span></a>
 			<nav class="topnav" aria-label="Primary">
-				<a href="#quick-start">Quick start</a>
-				<a href="#commands">Commands</a>
-				<a href="#troubleshooting">Troubleshooting</a>
+				<a href="/#quick-start">Quick start</a>
+				<a href="/setup">Bot setup</a>
+				<a href="/#commands">Commands</a>
+				<a href="/#troubleshooting">Troubleshooting</a>
 			</nav>
 		</div>
 	</header>

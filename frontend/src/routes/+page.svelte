@@ -164,7 +164,7 @@ done 1 21-15</code></pre>
 				<div class="steps">
 					<div class="card step"><div class="step-n">1</div><div><h3>Configure & start backend</h3><p>Set DB and secret in <code>.env</code>, then run migrations and backend.</p><pre><code>{startSnippet}</code></pre></div></div>
 					<div class="card step"><div class="step-n">2</div><div><h3>Create club & get token</h3><p>Token is needed for pairing the bot device.</p><pre><code>{tokenSnippet}</code></pre></div></div>
-					<div class="card step"><div class="step-n">3</div><div><h3>Pair the bot (once)</h3><p>Generate QR, scan on bot phone: <strong>Settings → Linked devices → Link a device</strong>. Pairing survives restarts.</p><pre><code>{pairQrSnippet}</code></pre></div></div>
+					<div class="card step"><div class="step-n">3</div><div><h3>Pair the bot (once)</h3><p>Use the <a href="/setup">Bot setup page</a> (recommended): paste host token, fetch QR, scan on bot phone: <strong>Settings → Linked devices → Link a device</strong>. Pairing survives restarts.</p><p class="muted">Backup (headless/scripted):</p><pre><code>{pairQrSnippet}</code></pre></div></div>
 					<div class="card step"><div class="step-n">4</div><div><h3>Set up groups (on bot phone)</h3><p>Send from the bot's own number so nobody else can redirect it.</p>
 						<table><thead><tr><th>In group</th><th>Send</th></tr></thead><tbody>
 							<tr><td>Admin group</td><td><code>setup admin Tiger Club</code></td></tr>
@@ -229,7 +229,7 @@ done 1 21-15</code></pre>
 						<tr><td>Bot unlinked</td><td>Re-pair (step 3). Group setup is kept.</td></tr>
 					</tbody>
 				</table>
-				<p class="muted"><code>GET /api/v1/whatsapp/status</code> (with token) shows connection and configured groups.</p>
+				<p class="muted"><code>GET /api/v1/whatsapp/status</code> (with token) shows connection and configured groups. Use the <a href="/setup">Bot setup page</a> for a UI, or curl as backup.</p>
 			</section>
 
 			<section id="reset">
