@@ -1,5 +1,4 @@
 <script lang="ts">
-	// Code samples live here so braces in them don't clash with Svelte syntax.
 	const envSnippet = `# Database (Supabase: use the session pooler details and require SSL)
 DB_HOST=aws-0-ap-northeast-1.pooler.supabase.com
 DB_PORT=5432
@@ -18,16 +17,17 @@ REDIS_USERNAME=default
 REDIS_PASSWORD=
 REDIS_TLS=false
 
-# WhatsApp bot. Everything else about the bot is set up from WhatsApp.
+# WhatsApp bot
 WHATSAPP_ENABLED=true
 
-# Optional: Google Gemini API for natural language commands.
+# Optional: AI natural language (Gemini)
 GEMINI_API_KEY=your-api-key-here
 GEMINI_MODEL=gemini-3.8-flash
 GEMINI_PREFIX=chat
 GEMINI_MAX_RPM=10`;
 
-	const startSnippet = `docker compose run --rm migrate          # applies migrations 1-6
+	const startSnippet = `cp .env.example .env
+docker compose run --rm migrate
 docker compose up -d --build backend`;
 
 	const tokenSnippet = `curl -s -X POST http://localhost:8080/api/v1/clubs \\
@@ -37,9 +37,8 @@ docker compose up -d --build backend`;
 # copy "token" from the "host" object in the response
 TOKEN='<host token>'`;
 
-	const pairCheckSnippet = `curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/whatsapp/qr`;
-
-	const pairQrSnippet = `CODE=$(curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/whatsapp/qr \\
+	const pairQrSnippet = `CODE=$(curl -s -H "Authorization: Bearer $TOKEN" \\
+  http://localhost:8080/api/v1/whatsapp/qr \\
   | python3 -c 'import json,sys; print(json.load(sys.stdin).get("qr",""))')
 npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png`;
 
@@ -52,23 +51,20 @@ Mary Jane F C`;
 	const sessionSnippet = `start
 courts 2
 in Alice, Bob, Cara, Dan, Eve
-done 1 21-15            # Court 1 result (Team A score first)
-set Eve Alice           # swap: Eve plays, Alice waits
-cancel 2                # undo match on Court 2 (or: cancel)
-stop`; 
+done 1 21-15      # Team A score first
+set Eve Alice     # bench↔court swap
+stop`;
 
 	const aiSnippet = `chat start session with 2 courts
 chat check in Alice, Bob, and Dan
 chat Alice and Bob won 21-17 on court 1
-chat swap Eve with Alice on court
 chat who is waiting right now?`;
 
 	const recapSnippet = `📊 Session recap — 16 Nov · 8 matches
 Player     G W-L  Rating     Grd
 Alice      5 4-1 1452 +52   A
 Bob        5 3-2 1261 +61   B→A
-Dan        4 1-3  958 -42   C
-Zed        0 0-0  800       D`;
+Dan        4 1-3  958 -42   C`;
 
 	const logsSnippet = `docker compose logs -f backend | grep whatsapp`;
 
@@ -82,448 +78,236 @@ DROP TYPE IF EXISTS
   session_player_status, court_status, match_format, match_status, match_team, match_winner
 CASCADE;`;
 
-	const commands: { area: string; cmd: string; desc: string }[] = [
-		{ area: "AI", cmd: "chat <message>", desc: "Natural language commands (e.g. \"chat court 1 finished 21-15\")" },
-		{ area: "Session", cmd: "start", desc: "Start a session" },
-		{ area: "", cmd: "stop", desc: "End the session and post the recap" },
-		{ area: "", cmd: "status", desc: "Courts with lineups, who's waiting, latest results" },
-		{ area: "Players", cmd: "in <names>", desc: "Check members in; \"in Eko M C\" also adds a new member" },
-		{ area: "", cmd: "out <name>", desc: "Take a player out of the rotation" },
-		{ area: "Courts", cmd: "courts <n>", desc: "Set the number of courts (\"courts\" alone lists them)" },
-		{ area: "", cmd: "next", desc: "Fill the next free court automatically" },
-		{ area: "", cmd: "done <court> <a>-<b>", desc: "Record result & free court (e.g. done 1 21-15)" },
-		{ area: "", cmd: "cancel [court]", desc: "Undo a match — latest, or a court (e.g. cancel 2)" },
-		{ area: "", cmd: "set <name1> <name2>", desc: "Swap players: bench↔court or court↔court (e.g. set Alice Bob)" },
-		{ area: "Host", cmd: "auto | manual", desc: "Bot fills courts / you pick lineups" },
-		{ area: "", cmd: "suggest <4 names>", desc: "Show the most balanced split" },
-		{ area: "", cmd: "assign <court> A B vs C D", desc: "Put an exact lineup on a court" },
-		{ area: "Member", cmd: "member [name]", desc: "List members, or show one" },
-		{ area: "", cmd: "member + lines", desc: "Bulk add/update, one \"Name M/F Grade\" per line" },
-		{ area: "", cmd: "grade <name> <A-E>", desc: "Change a grade and reset the rating to it" },
-		{ area: "Setup", cmd: "setup admin <club>", desc: "Bot phone only: make this group the admin group" },
-		{ area: "", cmd: "setup announce", desc: "Bot phone only: make this group the players' group" },
-		{ area: "", cmd: "setup status", desc: "Bot phone only: show the current setup" },
-		{ area: "", cmd: "help", desc: "Command list" },
+	const commandGroups = [
+		{ title: 'Session', items: [['start / stop', 'Start or end session (stop posts recap)'], ['status', 'Courts, waiting list, recent results'], ['courts <n>', 'Set number of courts']] },
+		{ title: 'Players', items: [['in <names>', 'Check members in; "in Eko M C" adds new member'], ['out <name>', 'Remove player from rotation'], ['member [name]', 'List members or show one'], ['member + lines', 'Bulk add/update "Name M/F Grade"'], ['grade <name> <A-E>', 'Change grade and reset rating']] },
+		{ title: 'Matches', items: [['next', 'Fill a free court automatically'], ['done <court> <a>-<b>', 'Record result (Team A score first)'], ['cancel [court]', 'Undo latest or specific court match'], ['set <n1> <n2>', 'Swap players (bench↔court or court↔court)']] },
+		{ title: 'Host & AI', items: [['auto | manual', 'Auto-fill courts or pick lineups yourself'], ['suggest <4 names>', 'Show most balanced split'], ['assign <court> A B vs C D', 'Set exact lineup'], ['chat <message>', 'Natural language command (optional Gemini)'], ['help', 'Show command list']] },
+		{ title: 'Setup (bot phone)', items: [['setup admin <club>', 'Make this group the admin group'], ['setup announce', 'Make this group the players/announcement group'], ['setup status', 'Show current setup']] }
 	];
 
 	const toc = [
-		["overview", "Overview"],
-		["requirements", "Requirements"],
-		["configuration", "Configuration"],
-		["setup", "Setting up the bot"],
-		["admins", "Admins and co-hosts"],
-		["session", "Running a session"],
-		["ai", "AI Natural Language"],
-		["commands", "Commands"],
-		["grades", "Grades and recap"],
-		["troubleshooting", "Troubleshooting"],
-		["reset", "Resetting the database"],
+		['how-it-works', 'How it works'],
+		['quick-start', 'Quick start'],
+		['configuration', 'Configuration'],
+		['session', 'Running a session'],
+		['commands', 'Commands'],
+		['grades', 'Grades & recap'],
+		['troubleshooting', 'Troubleshooting'],
+		['reset', 'Reset']
 	];
 </script>
 
 <svelte:head>
-	<title>Deuce Documentation</title>
-	<meta name="description" content="Set up and run the Deuce WhatsApp bot for badminton sessions." />
+	<title>Deuce — WhatsApp badminton session bot</title>
+	<meta name="description" content="Simple docs for running Deuce: fair rotation, balanced doubles, results and recap in WhatsApp." />
 </svelte:head>
 
-<article class="container-wide docs">
-	<h1>Deuce</h1>
-	<p class="lead">
-		A WhatsApp bot that runs badminton sessions: fair court rotation, rating-balanced doubles,
-		match results and a session recap. Hosts control it from an admin group; players follow
-		along in the club group.
-	</p>
-
-	<nav class="toc" aria-label="Contents">
-		<strong>Contents</strong>
-		<ol>
-			{#each toc as [id, label]}
-				<li><a href="#{id}">{label}</a></li>
-			{/each}
-		</ol>
-	</nav>
-
-	<section id="overview">
-		<h2>Overview</h2>
-		<p>The bot works with two WhatsApp groups:</p>
-		<table>
-			<thead>
-				<tr><th>Group</th><th>Members</th><th>What happens there</th></tr>
-			</thead>
-			<tbody>
-				<tr>
-					<td>Admin group</td>
-					<td>You, co-hosts, the bot</td>
-					<td>Hosts type commands; the bot replies here. Everyone in this group is an admin.</td>
-				</tr>
-				<tr>
-					<td>Players' group</td>
-					<td>Players, the bot</td>
-					<td>Only announcements: session start/end, lineups and results. The bot ignores messages here.</td>
-				</tr>
-			</tbody>
-		</table>
-		<p>
-			The bot never sends private messages and ignores private chats. Its setup is stored in the
-			database and changed from WhatsApp, so no configuration file edits or restarts are needed
-			after the first install.
+<div class="page container-wide">
+	<section class="hero">
+		<p class="eyebrow">WhatsApp bot for badminton clubs</p>
+		<h1>Run sessions, not spreadsheets.</h1>
+		<p class="lead">
+			Deuce rotates players fairly, builds balanced doubles, tracks results and posts a recap —
+			all from WhatsApp. Hosts command in an admin group; players just see lineups and scores.
 		</p>
+		<div class="hero-actions">
+			<a class="btn btn-primary" href="#quick-start">Quick start</a>
+			<a class="btn btn-ghost" href="#commands">Command reference</a>
+		</div>
+		<div class="feature-grid">
+			<div class="card feature"><strong>Fair rotation</strong><span>Queues players so nobody sits out unfairly long.</span></div>
+			<div class="card feature"><strong>Balanced matches</strong><span>Uses grades/ratings and waiting time for doubles.</span></div>
+			<div class="card feature"><strong>Two-group flow</strong><span>Admins control; players group gets announcements only.</span></div>
+			<div class="card feature"><strong>Optional AI</strong><span>Prefix with <code>chat</code> for natural commands via Gemini.</span></div>
+		</div>
 	</section>
 
-	<section id="requirements">
-		<h2>Requirements</h2>
-		<ul>
-			<li>Docker, and Node.js (only to draw the pairing QR code).</li>
-			<li>A PostgreSQL database (e.g. Supabase).</li>
-			<li>
-				A separate WhatsApp number for the bot, on a spare phone. Do not use your personal number:
-				the bot posts as that account, and messages typed on the bot phone count as setup commands.
-			</li>
-			<li>The two WhatsApp groups above, with the bot number added to both.</li>
-		</ul>
-	</section>
+	<div class="layout">
+		<aside class="sidebar">
+			<nav class="toc card" aria-label="On this page">
+				<strong>On this page</strong>
+				<ol>
+					{#each toc as [id, label]}<li><a href="#{id}">{label}</a></li>{/each}
+				</ol>
+			</nav>
+		</aside>
 
-	<section id="configuration">
-		<h2>Configuration</h2>
-		<p>
-			Copy <code>.env.example</code> to <code>.env</code> in the repository root and fill in the
-			database values:
-		</p>
-		<pre><code>{envSnippet}</code></pre>
-		<table>
-			<thead>
-				<tr><th>Variable</th><th>Purpose</th></tr>
-			</thead>
-			<tbody>
-				<tr><td><code>DB_*</code></td><td>Database connection. Use <code>DB_SSLMODE=require</code> for Supabase.</td></tr>
-				<tr><td><code>PLAYER_TOKEN_SECRET</code></td><td>Secret used to hash API tokens.</td></tr>
-				<tr><td><code>REDIS_*</code></td><td>Optional. Shared rate limiting and locks; the backend runs without it.</td></tr>
-				<tr><td><code>WHATSAPP_ENABLED</code></td><td>Starts the bot (default <code>true</code>). Set <code>false</code> to run the API only.</td></tr>
-				<tr><td><code>GEMINI_API_KEY</code></td><td>Optional. Google Gemini API key for natural language commands.</td></tr>
-				<tr><td><code>GEMINI_PREFIX</code></td><td>Command trigger prefix (default <code>chat</code>, or symbols like <code>!</code>).</td></tr>
-				<tr><td><code>GEMINI_MAX_RPM</code></td><td>Free-tier rate limiter (default <code>10</code> requests/minute).</td></tr>
-			</tbody>
-		</table>
-		<p>
-			No phone numbers, group IDs or club IDs go in <code>.env</code>. The older
-			<code>WHATSAPP_CLUB_ID</code>, <code>WHATSAPP_GROUP_JID</code> and
-			<code>WHATSAPP_ADMIN_JIDS</code> variables are no longer needed and can be removed.
-		</p>
-	</section>
+		<article class="docs">
+			<section id="how-it-works">
+				<h2>How it works</h2>
+				<p>Deuce uses two WhatsApp groups and never sends private messages.</p>
+				<div class="flow">
+					<div class="card flow-card">
+						<span class="badge">Control</span>
+						<h3>Admin group</h3>
+						<p class="muted">You + co-hosts + bot</p>
+						<ul><li>Type commands and get replies</li><li>Everyone in this group is an admin</li><li>Run sessions, manage members, get recap</li></ul>
+						<pre class="mini"><code>in Alice Bob Cara Dan
+done 1 21-15</code></pre>
+					</div>
+					<div class="flow-arrow">→</div>
+					<div class="card flow-card">
+						<span class="badge">Announce</span>
+						<h3>Players' group</h3>
+						<p class="muted">Players + bot</p>
+						<ul><li>Session start/end</li><li>Lineups and results posted</li><li>Bot ignores chat here (no accidental triggers)</li></ul>
+						<pre class="mini"><code>🏸 Court 1: Alice/Bob vs Cara/Dan
+✅ Court 1: 21–15</code></pre>
+					</div>
+				</div>
+			</section>
 
-	<section id="setup">
-		<h2>Setting up the bot</h2>
+			<section id="quick-start">
+				<h2>Quick start</h2>
+				<p class="muted">You need Docker, a Postgres DB (e.g. Supabase), Node.js (for QR), a spare WhatsApp number for the bot, and the two groups.</p>
+				<div class="steps">
+					<div class="card step"><div class="step-n">1</div><div><h3>Configure & start backend</h3><p>Set DB and secret in <code>.env</code>, then run migrations and backend.</p><pre><code>{startSnippet}</code></pre></div></div>
+					<div class="card step"><div class="step-n">2</div><div><h3>Create club & get token</h3><p>Token is needed for pairing the bot device.</p><pre><code>{tokenSnippet}</code></pre></div></div>
+					<div class="card step"><div class="step-n">3</div><div><h3>Pair the bot (once)</h3><p>Generate QR, scan on bot phone: <strong>Settings → Linked devices → Link a device</strong>. Pairing survives restarts.</p><pre><code>{pairQrSnippet}</code></pre></div></div>
+					<div class="card step"><div class="step-n">4</div><div><h3>Set up groups (on bot phone)</h3><p>Send from the bot's own number so nobody else can redirect it.</p>
+						<table><thead><tr><th>In group</th><th>Send</th></tr></thead><tbody>
+							<tr><td>Admin group</td><td><code>setup admin Tiger Club</code></td></tr>
+							<tr><td>Players' group</td><td><code>setup announce</code></td></tr>
+						</tbody></table></div></div>
+					<div class="card step"><div class="step-n">5</div><div><h3>Add members</h3><p>In admin group, one per line: name, gender (M/F), grade (A–E).</p><pre><code>{rosterSnippet}</code></pre></div></div>
+				</div>
+			</section>
 
-		<h3>1. Start the backend</h3>
-		<pre><code>{startSnippet}</code></pre>
+			<section id="configuration">
+				<h2>Configuration</h2>
+				<p>Infrastructure lives in <code>.env</code>. Club/groups/admins are configured from WhatsApp and stored in DB (no restart needed).</p>
+				<pre><code>{envSnippet}</code></pre>
+				<div class="note card">Do not put phone numbers, group IDs, or club IDs in <code>.env</code>. Old <code>WHATSAPP_CLUB_ID</code>, <code>WHATSAPP_GROUP_JID</code>, <code>WHATSAPP_ADMIN_JIDS</code> are obsolete.</div>
+			</section>
 
-		<h3>2. Get an API token</h3>
-		<p>Pairing needs an API token. Creating the club returns one:</p>
-		<pre><code>{tokenSnippet}</code></pre>
+			<section id="session">
+				<h2>Running a session</h2>
+				<p>All commands go in the <strong>admin group</strong>.</p>
+				<pre><code>{sessionSnippet}</code></pre>
+				<div class="cols">
+					<div class="card"><h3>Auto vs manual</h3><p class="muted">Default auto-fills courts by rating + waiting time. Switch with <code>manual</code>/<code>auto</code>.</p><ul><li><code>suggest Alice Bob Cara Dan</code></li><li><code>assign 1 Alice Bob vs Cara Dan</code></li><li><code>next</code> fills one free court</li></ul></div>
+					<div class="card"><h3>AI chat (optional)</h3><p class="muted">If <code>GEMINI_API_KEY</code> is set, prefix with <code>chat</code>.</p><pre class="mini"><code>{aiSnippet}</code></pre></div>
+				</div>
+				<p class="muted">Tip: names with spaces use commas, e.g. <code>in Mary Jane, Bob</code>.</p>
+			</section>
 
-		<h3>3. Pair the bot (once)</h3>
-		<pre><code>{pairCheckSnippet}</code></pre>
-		<p>
-			If it returns <code>{`{"status":"PAIRED"}`}</code>, skip to step 4. Otherwise generate the QR
-			code and open it:
-		</p>
-		<pre><code>{pairQrSnippet}</code></pre>
-		<p>
-			On the bot phone, open <strong>WhatsApp → Settings → Linked devices → Link a device</strong>
-			and scan it. Codes expire after about 20 seconds; if the scan fails or the first call said
-			<code>WAITING</code>, run it again. The pairing is stored in the database and survives
-			restarts.
-		</p>
+			<section id="commands">
+				<h2>Commands</h2>
+				<div class="cmd-grid">
+					{#each commandGroups as g}
+						<div class="card cmd-card">
+							<h3>{g.title}</h3>
+							{#each g.items as [cmd, desc]}
+								<div class="cmd-row"><code>{cmd}</code><span>{desc}</span></div>
+							{/each}
+						</div>
+					{/each}
+				</div>
+			</section>
 
-		<h3>4. Set up the groups</h3>
-		<p>Type these <strong>on the bot phone</strong>:</p>
-		<table>
-			<thead>
-				<tr><th>In this group</th><th>Type</th><th>Result</th></tr>
-			</thead>
-			<tbody>
-				<tr><td>Admin group</td><td><code>setup admin Tiger Club</code></td><td>Becomes the admin group for the club</td></tr>
-				<tr><td>Players' group</td><td><code>setup announce</code></td><td>Becomes the announcement group</td></tr>
-			</tbody>
-		</table>
-		<p>
-			Use the same club name as in step 2 to reuse that club. <code>setup status</code> shows the
-			current setup; running a <code>setup</code> command in another group moves that role there.
-			Only the bot phone can run <code>setup</code>, so nobody else can redirect the bot.
-		</p>
+			<section id="grades">
+				<h2>Grades & recap</h2>
+				<p>Grades set starting rating; results move ratings over time. <code>grade Bob A</code> resets rating to that grade; re-importing via <code>member</code> keeps earned rating.</p>
+				<table class="grades"><thead><tr><th>Grade</th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead><tbody><tr><td>Starting rating</td><td>1400</td><td>1200</td><td>1000</td><td>800</td><td>600</td></tr></tbody></table>
+				<p>After <code>stop</code>, admin group gets a recap (e.g. <code>B→A</code> suggests re-grade):</p>
+				<pre><code>{recapSnippet}</code></pre>
+			</section>
 
-		<h3>5. Add your members</h3>
-		<p>In the admin group, one member per line: name, gender (M/F), grade (A strongest to E).</p>
-		<pre><code>{rosterSnippet}</code></pre>
-		<p>Check the result with <code>member</code>.</p>
-	</section>
+			<section id="troubleshooting">
+				<h2>Troubleshooting</h2>
+				<pre><code>{logsSnippet}</code></pre>
+				<table>
+					<thead><tr><th>Log / issue</th><th>Meaning / fix</th></tr></thead>
+					<tbody>
+						<tr><td><code>whatsapp_command_received</code> → <code>whatsapp_reply_sent</code></td><td>Working.</td></tr>
+						<tr><td><code>reason=announcement_group</code></td><td>Typed in players' group; use admin group.</td></tr>
+						<tr><td><code>reason=unconfigured_group</code></td><td>Run <code>setup admin</code> there from bot phone.</td></tr>
+						<tr><td><code>reason=too_old</code></td><td>Sent while backend down; resend.</td></tr>
+						<tr><td>"setup must be typed on the bot's own phone"</td><td><code>setup</code> only works from bot number.</td></tr>
+						<tr><td>No lineups in players' group</td><td>Run <code>setup announce</code>; make bot group admin if posting restricted.</td></tr>
+						<tr><td>Bot unlinked</td><td>Re-pair (step 3). Group setup is kept.</td></tr>
+					</tbody>
+				</table>
+				<p class="muted"><code>GET /api/v1/whatsapp/status</code> (with token) shows connection and configured groups.</p>
+			</section>
 
-	<section id="admins">
-		<h2>Admins and co-hosts</h2>
-		<p>
-			Admin access is membership of the admin group. The bot does not store admin phone numbers.
-		</p>
-		<ul>
-			<li><strong>Add a co-host:</strong> add them to the admin group in WhatsApp.</li>
-			<li><strong>Remove a co-host:</strong> remove them from the admin group. It takes effect immediately.</li>
-		</ul>
-		<p>
-			Because the group is the access control, lock it down. In the admin group's info, open
-			<strong>Group settings</strong> and set:
-		</p>
-		<ul>
-			<li><strong>Add other members → Only admins</strong>, so only you (the WhatsApp group admin) decide who becomes a co-host.</li>
-			<li><strong>Edit group settings → Only admins.</strong></li>
-		</ul>
-		<p>
-			Optionally set the players' group to <strong>Send messages → Only admins</strong> and make the
-			bot a group admin there, so it only contains announcements. The bot must be a group admin to
-			post in a group with that setting.
-		</p>
-	</section>
-
-	<section id="session">
-		<h2>Running a session</h2>
-		<p>All commands go in the admin group. A command without arguments must be the whole message.</p>
-		<pre><code>{sessionSnippet}</code></pre>
-		<ol>
-			<li><code>start</code> starts the session; the players' group is notified.</li>
-			<li><code>courts 2</code> sets the number of courts.</li>
-			<li>
-				<code>in …</code> checks members in. For someone new, add gender and grade:
-				<code>in Zed M C</code>.
-			</li>
-			<li>
-				Free courts are filled automatically by rating and waiting time; each lineup is posted to
-				the players' group.
-			</li>
-			<li>
-				After each game, <code>done 1 21-15</code> records the result (court, then Team A's score),
-				updates ratings, posts the result and frees the court.
-			</li>
-			<li><code>stop</code> ends the session and posts the recap in the admin group.</li>
-		</ol>
-		<p>
-			Need control? <code>manual</code> lets you pick lineups (<code>auto</code> switches back).
-			Use <code>suggest Alice Bob Cara Dan</code> for a balanced split, <code>assign 1 Alice Bob vs Cara Dan</code> to set it,
-			<code>cancel</code>/<code>cancel 2</code> to undo, and <code>set Alice Bob</code> to swap players (bench↔court).
-		</p>
-	</section>
-
-	<section id="ai">
-		<h2>AI chat (optional)</h2>
-		<p>
-			Don’t want to memorize commands? Start your message with <code>chat</code> (or your custom prefix) and just say it naturally:
-		</p>
-		<pre><code>{aiSnippet}</code></pre>
-		<ul>
-			<li><strong>Turns words into commands:</strong> e.g. scores, check-ins, swaps, multiple actions at once.</li>
-			<li><strong>Understands context:</strong> it sees the live session (courts/lineups, waiting list, member names), so it can find the right court and fix typos/nicknames.</li>
-			<li><strong>Safe when unsure:</strong> if a name is ambiguous, it asks instead of guessing.</li>
-			<li><strong>How it works:</strong> Gemini suggests bot commands; Deuce runs them through the same command logic (no direct API/tool/MCP access).</li>
-			<li><strong>Quota-friendly:</strong> only <code>chat</code>/<code>!</code> messages call Gemini.</li>
-		</ul>
-		<p class="note">Note: it’s tuned for running badminton sessions, but if you ask something unrelated it may still reply in text (without running commands).</p>
-	</section>
-
-	<section id="commands">
-		<h2>Commands</h2>
-		<table>
-			<thead>
-				<tr><th>Area</th><th>Command</th><th>Description</th></tr>
-			</thead>
-			<tbody>
-				{#each commands as c}
-					<tr>
-						<td>{c.area}</td>
-						<td><code>{c.cmd}</code></td>
-						<td>{c.desc}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-		<p>Names with spaces are separated by commas: <code>in Mary Jane, Bob</code>.</p>
-	</section>
-
-	<section id="grades">
-		<h2>Grades and recap</h2>
-		<p>Grades set a new member's starting rating; after that the rating moves with results.</p>
-		<table>
-			<thead>
-				<tr><th>Grade</th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr>
-			</thead>
-			<tbody>
-				<tr><td>Starting rating</td><td>1400</td><td>1200</td><td>1000</td><td>800</td><td>600</td></tr>
-			</tbody>
-		</table>
-		<ul>
-			<li>Re-importing a member with <code>roster</code> updates the grade but keeps the earned rating.</li>
-			<li><code>grade Bob A</code> changes the grade and resets the rating to 1400.</li>
-		</ul>
-		<p>After <code>stop</code>, the admin group receives a recap:</p>
-		<pre><code>{recapSnippet}</code></pre>
-		<p><code>B→A</code> means the player's rating now fits grade A.</p>
-	</section>
-
-	<section id="troubleshooting">
-		<h2>Troubleshooting</h2>
-		<pre><code>{logsSnippet}</code></pre>
-		<table>
-			<thead>
-				<tr><th>Log line</th><th>Meaning / fix</th></tr>
-			</thead>
-			<tbody>
-				<tr><td><code>whatsapp_command_received</code> then <code>whatsapp_reply_sent</code></td><td>Working.</td></tr>
-				<tr><td><code>whatsapp_command_ignored reason=announcement_group</code></td><td>Typed in the players' group; use the admin group.</td></tr>
-				<tr><td><code>whatsapp_command_ignored reason=unconfigured_group</code></td><td>That group is not set up; run <code>setup admin</code> there from the bot phone.</td></tr>
-				<tr><td><code>whatsapp_command_ignored reason=too_old</code></td><td>Sent while the backend was down; send it again.</td></tr>
-			</tbody>
-		</table>
-		<ul>
-			<li><strong>"setup must be typed on the bot's own phone":</strong> <code>setup</code> only works from the bot number.</li>
-			<li><strong>No lineups in the players' group:</strong> run <code>setup announce</code> there; if only admins can post, make the bot a group admin.</li>
-			<li><strong>Bot unlinked:</strong> repeat step 3. The group setup is kept.</li>
-		</ul>
-		<p>
-			<code>GET /api/v1/whatsapp/status</code> (with the token) shows the connection and which groups
-			are set up.
-		</p>
-	</section>
-
-	<section id="reset">
-		<h2>Resetting the database</h2>
-		<p>
-			For a clean start or an end-to-end test, run this in the database's SQL editor. Deleting
-			tables one by one leaves the enum types behind, and the next migration then fails with
-			<code>type "club_member_role" already exists</code>.
-		</p>
-		<pre><code>{resetSnippet}</code></pre>
-		<p>
-			Then repeat steps 1, 2, 4 and 5. The bot stays paired, because its <code>whatsmeow</code>
-			schema is kept.
-		</p>
-	</section>
-</article>
+			<section id="reset">
+				<h2>Resetting the database</h2>
+				<p>For a clean start, drop tables and enum types (dropping tables only leaves enums and breaks next migration). Bot pairing (<code>whatsmeow</code> schema) is kept.</p>
+				<pre><code>{resetSnippet}</code></pre>
+				<p class="muted">Then re-run start/migrate, create token, and redo group/member setup.</p>
+			</section>
+		</article>
+	</div>
+</div>
 
 <style>
-	.docs {
-		max-width: 820px;
-		line-height: 1.6;
-	}
+	.page { padding-top: 8px; }
+	.hero { padding: 28px 0 36px; border-bottom: 1px solid var(--border-soft); margin-bottom: 28px; }
+	.eyebrow { color: var(--accent); font-weight: 600; font-size: 0.9rem; margin-bottom: 10px; }
+	h1 { font-size: clamp(2rem, 4vw, 3.1rem); line-height: 1.05; letter-spacing: -0.04em; margin: 0 0 14px; max-width: 14ch; }
+	.lead { color: var(--text-dim); font-size: 1.1rem; max-width: 62ch; margin: 0 0 22px; line-height: 1.6; }
+	.hero-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 26px; }
+	.feature-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+	.feature { padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+	.feature strong { font-size: 0.98rem; }
+	.feature span { color: var(--text-dim); font-size: 0.9rem; line-height: 1.45; }
 
-	h1 {
-		font-size: 2rem;
-		margin: 0 0 8px;
-	}
+	.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 28px; align-items: start; }
+	.sidebar { position: sticky; top: 84px; }
+	.toc { padding: 14px 16px; }
+	.toc strong { font-size: 0.85rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+	.toc ol { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+	.toc a { color: var(--text-dim); font-size: 0.92rem; }
+	.toc a:hover { color: var(--text); }
 
-	.lead {
-		color: var(--text-dim);
-		font-size: 1.05rem;
-		margin: 0 0 24px;
-	}
+	.docs section { scroll-margin-top: 88px; padding: 10px 0 34px; border-bottom: 1px solid var(--border-soft); }
+	.docs section:last-child { border-bottom: 0; }
+	h2 { font-size: 1.55rem; margin: 0 0 12px; letter-spacing: -0.03em; }
+	h3 { font-size: 1rem; margin: 0 0 6px; }
+	p, li { line-height: 1.65; }
+	a { color: var(--accent); }
+	.muted { color: var(--text-dim); }
 
-	h2 {
-		font-size: 1.4rem;
-		margin: 40px 0 12px;
-		padding-bottom: 6px;
-		border-bottom: 1px solid var(--border);
-		scroll-margin-top: 72px;
-	}
+	.flow { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; margin: 14px 0; }
+	.flow-card { padding: 18px; }
+	.flow-card ul { margin: 10px 0; padding-left: 18px; color: var(--text-dim); }
+	.flow-arrow { display:flex; align-items:center; justify-content:center; color: var(--text-faint); font-size: 1.4rem; }
+	.badge { display:inline-block; font-size:.75rem; font-weight:700; color: var(--accent-contrast); background: var(--accent); padding:3px 8px; border-radius:999px; margin-bottom:8px; }
 
-	h3 {
-		font-size: 1.05rem;
-		margin: 24px 0 8px;
-	}
+	.steps { display: grid; gap: 12px; margin-top: 14px; }
+	.step { display: grid; grid-template-columns: auto 1fr; gap: 14px; padding: 16px 18px; align-items: start; }
+	.step-n { width: 30px; height: 30px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); display:flex; align-items:center; justify-content:center; font-weight:700; }
 
-	section {
-		scroll-margin-top: 72px;
-	}
+	.cols, .cmd-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin: 14px 0; }
+	.cmd-card { padding: 16px; }
+	.cmd-row { display: grid; gap: 4px; padding: 10px 0; border-top: 1px solid var(--border-soft); }
+	.cmd-row:first-of-type { border-top: 0; }
+	.cmd-row span { color: var(--text-dim); font-size: 0.92rem; }
 
-	a {
-		color: var(--accent);
-	}
+	pre { background: #0f1115; border: 1px solid var(--border-soft); border-radius: 14px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; margin: 12px 0; }
+	pre.mini { padding: 10px 12px; font-size: 0.85rem; }
+	code { font-family: var(--font-mono); font-size: 0.88em; }
+	:not(pre) > code { background: var(--bg-elevated-2); border: 1px solid var(--border-soft); border-radius: 6px; padding: 1px 6px; }
 
-	.toc {
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		padding: 12px 16px;
-		background: var(--bg-elevated);
-	}
+	table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.93rem; display: block; overflow-x: auto; }
+	th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); }
+	th { color: var(--text-dim); font-weight: 600; font-size: 0.85rem; }
+	.note { margin-top: 12px; padding: 14px 16px; color: var(--text-dim); border-left: 3px solid var(--accent); }
+	.grades td, .grades th { text-align: center; }
 
-	.toc ol {
-		margin: 8px 0 0;
-		padding-left: 20px;
-		columns: 2;
-		column-gap: 32px;
+	@media (max-width: 960px) {
+		.feature-grid { grid-template-columns: repeat(2, 1fr); }
+		.layout { grid-template-columns: 1fr; }
+		.sidebar { position: static; }
+		.toc ol { grid-template-columns: repeat(2, minmax(0,1fr)); display:grid; }
+		.flow { grid-template-columns: 1fr; }
+		.flow-arrow { transform: rotate(90deg); }
 	}
-
-	@media (max-width: 560px) {
-		.toc ol {
-			columns: 1;
-		}
-	}
-
-	code {
-		font-family: var(--font-mono);
-		font-size: 0.88em;
-		background: var(--bg-elevated-2);
-		border-radius: 4px;
-		padding: 1px 5px;
-	}
-
-	pre {
-		background: var(--bg-elevated);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		padding: 12px 14px;
-		overflow-x: auto;
-		line-height: 1.45;
-	}
-
-	pre code {
-		background: none;
-		padding: 0;
-		font-size: 0.85rem;
-	}
-
-	table {
-		width: 100%;
-		border-collapse: collapse;
-		margin: 12px 0;
-		font-size: 0.92rem;
-		display: block;
-		overflow-x: auto;
-	}
-
-	th,
-	td {
-		text-align: left;
-		vertical-align: top;
-		padding: 8px 10px;
-		border-bottom: 1px solid var(--border-soft);
-	}
-
-	th {
-		color: var(--text-dim);
-		font-weight: 600;
-		border-bottom: 1px solid var(--border);
-	}
-
-	td code {
-		white-space: nowrap;
-	}
-
-	ul,
-	ol {
-		padding-left: 22px;
-	}
-
-	li {
-		margin: 4px 0;
-	}
-
-	.note {
-		color: var(--text-dim);
-		font-size: 0.95rem;
+	@media (max-width: 640px) {
+		.feature-grid, .cols, .cmd-grid { grid-template-columns: 1fr; }
+		h1 { max-width: none; }
+		.toc ol { grid-template-columns: 1fr; }
 	}
 </style>

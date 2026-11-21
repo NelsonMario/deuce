@@ -1,24 +1,17 @@
 :root {
-	/* Deuce Glass — the original lime-green pop palette rebuilt on Apple's
-	   glass materials: frosted tiers, soft layered shadows, SF system type,
-	   and a spring easing shared by every touch/click. Neon green does the
-	   talking; pink/cyan are reserved for true live/emphasis states. */
+	--bg: #090b10;
+	--bg-elevated: #11151d;
+	--bg-elevated-2: #171c26;
+	--border: #2a3242;
+	--border-soft: #1d2430;
+	--text: #eef3ff;
+	--text-dim: #a9b4c8;
+	--text-faint: #718099;
 
-	--bg: #0a0a0c;
-	--bg-elevated: #131317;
-	--bg-elevated-2: #1c1c21;
-	--border: #313137;
-	--border-soft: #242429;
-	--text: #f4f4ef;
-	--text-dim: #a2a2ac;
-	--text-faint: #6b6b76;
+	--accent: #9eff5f;
+	--accent-strong: #b8ff86;
+	--accent-contrast: #081004;
 
-	/* The accent — the club's signature court-lime. */
-	--accent: #c6ff5c;
-	--accent-strong: #aef23d;
-	--accent-contrast: #060a02;
-
-	/* Secondary system accents, used sparingly (offline, live, motion). */
 	--pop-pink: #ff3ea5;
 	--pop-cyan: #3ef2ff;
 	--danger: #ff5470;
@@ -27,73 +20,44 @@
 	--warn-bg: #332510;
 	--ok-bg: #16241a;
 
-	--radius-lg: 24px;
-	--radius: 18px;
-	--radius-sm: 12px;
+	--radius-lg: 18px;
+	--radius: 14px;
+	--radius-sm: 10px;
 
-	/* Apple-style layered shadows: a tight contact shadow + a soft large
-	   ambient falloff, no hard offset. */
-	--shadow: 0 14px 40px 0 rgba(0, 0, 0, 0.5), 0 2px 8px 0 rgba(0, 0, 0, 0.4),
-		inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
-	--shadow-sm: 0 8px 24px 0 rgba(0, 0, 0, 0.35), 0 1px 3px 0 rgba(0, 0, 0, 0.3),
-		inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+	--shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+	--shadow-sm: 0 6px 16px rgba(0, 0, 0, 0.25);
 
-	/* SF-style system stack — Apple's actual system font when available. */
-	--font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text',
-		'SF Pro Display', 'Helvetica Neue', 'Segoe UI', Roboto, Helvetica,
-		Arial, sans-serif;
-	--font-mono: 'SF Mono', ui-monospace, 'SFMono-Regular', Menlo, 'Cascadia Code',
-		monospace;
+	--font-sans: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+	--font-mono: 'SF Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 	--font-display: var(--font-sans);
-
-	/* Physical spring shared by all touch/click feedback. */
 	--ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* "halftone" is legacy naming — it now renders as an ultra-subtle top
-   highlight wash so sections that used the texture keep a quiet, native
-   sense of depth without any visible dots. */
-.halftone {
-	position: relative;
-	z-index: 0;
-}
-
+.halftone { position: relative; z-index: 0; }
 .halftone::before {
 	content: '';
 	position: absolute;
 	inset: 0;
 	z-index: -1;
 	pointer-events: none;
-	background: radial-gradient(
-		ellipse 90% 60% at 50% -20%,
-		color-mix(in srgb, var(--accent) 5%, transparent),
-		transparent 65%
-	);
+	background: radial-gradient(ellipse 90% 60% at 50% -20%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 65%);
 }
 
-* {
-	box-sizing: border-box;
-}
-
-html,
-body {
-	padding: 0;
-	margin: 0;
-}
+* { box-sizing: border-box; }
+html, body { padding: 0; margin: 0; }
+html { scroll-behavior: smooth; }
 
 body {
-	background: var(--bg);
+	background:
+		radial-gradient(ellipse 70% 40% at 10% -10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+		radial-gradient(ellipse 50% 30% at 90% 0%, color-mix(in srgb, var(--pop-cyan) 8%, transparent), transparent 60%),
+		var(--bg);
 	color: var(--text);
 	font-family: var(--font-sans);
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
-	line-height: 1.45;
+	line-height: 1.5;
 	text-rendering: optimizeLegibility;
-	background-image: radial-gradient(ellipse 80% 50% at 50% -10%,
-			color-mix(in srgb, var(--accent) 3%, transparent),
-			transparent);
-	/* Respect notches / home indicators on mobile and keep content comfortable
-	   under the glass topbar. */
 	overflow-wrap: break-word;
 }
 

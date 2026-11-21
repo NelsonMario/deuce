@@ -15,7 +15,11 @@
 	<header class="topbar">
 		<div class="container-wide topbar-inner">
 			<a href="/" class="brand">deuce<span class="brand-dot">.</span></a>
-			<span class="topbar-label">Documentation</span>
+			<nav class="topnav" aria-label="Primary">
+				<a href="#quick-start">Quick start</a>
+				<a href="#commands">Commands</a>
+				<a href="#troubleshooting">Troubleshooting</a>
+			</nav>
 		</div>
 	</header>
 
@@ -45,22 +49,26 @@
 	.topbar {
 		position: sticky;
 		top: 0;
-		z-index: 10;
-		background: var(--bg);
-		border-bottom: 1px solid var(--border);
+		z-index: 20;
+		background: color-mix(in srgb, var(--bg) 82%, transparent);
+		backdrop-filter: blur(14px) saturate(140%);
+		-webkit-backdrop-filter: blur(14px) saturate(140%);
+		border-bottom: 1px solid var(--border-soft);
 	}
 
 	.topbar-inner {
 		display: flex;
-		align-items: baseline;
-		gap: 12px;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
 		padding-top: 14px;
 		padding-bottom: 14px;
 	}
 
 	.brand {
-		font-weight: 700;
-		font-size: 1.25rem;
+		font-weight: 800;
+		font-size: 1.35rem;
+		letter-spacing: -0.03em;
 		color: var(--text);
 		text-decoration: none;
 	}
@@ -69,19 +77,25 @@
 		color: var(--accent);
 	}
 
-	.topbar-label {
-		color: var(--text-dim);
+	.topnav {
+		display: flex;
+		gap: 18px;
 		font-size: 0.9rem;
+		color: var(--text-dim);
+	}
+
+	.topnav a:hover {
+		color: var(--text);
 	}
 
 	main {
 		flex: 1;
-		padding: 32px 0 64px;
+		padding: 28px 0 72px;
 	}
 
 	.footer {
-		border-top: 1px solid var(--border);
-		padding: 16px 0;
+		border-top: 1px solid var(--border-soft);
+		padding: 20px 0;
 		font-size: 0.85rem;
 		color: var(--text-dim);
 	}
@@ -98,11 +112,11 @@
 		gap: 16px;
 	}
 
-	.footer-links a {
-		color: var(--text-dim);
-	}
-
 	.footer-links a:hover {
 		color: var(--accent);
+	}
+
+	@media (max-width: 640px) {
+		.topnav { display: none; }
 	}
 </style>
