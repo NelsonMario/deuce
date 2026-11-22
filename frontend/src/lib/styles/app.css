@@ -245,7 +245,9 @@ button {
 	cursor: not-allowed;
 }
 
-.btn-primary {
+.btn-primary,
+a.btn-primary,
+a.btn-primary:visited {
 	background: var(--accent);
 	color: var(--accent-contrast);
 	border-color: color-mix(in srgb, var(--accent) 60%, white);
@@ -282,7 +284,9 @@ button {
 	background: var(--accent);
 }
 
-.btn-ghost {
+.btn-ghost,
+a.btn-ghost,
+a.btn-ghost:visited {
 	background: color-mix(in srgb, var(--bg-elevated-2) 92%, transparent);
 	backdrop-filter: blur(12px);
 	-webkit-backdrop-filter: blur(12px);
