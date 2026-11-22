@@ -1178,11 +1178,11 @@ func (c *GroupCommands) setPlayers(ctx context.Context, sess session.Session, re
 	default:
 		a1, b1 := replaceIn(l1, p1.ID, p2.ID)
 		a2, b2 := replaceIn(l2, p2.ID, p1.ID)
-		if _, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{MatchID: l1.match.ID, TeamA: a1, TeamB: b1}); err != nil {
-			return "⚠️ Could not swap players: " + userMessage(err), nil
-		}
-		if _, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{MatchID: l2.match.ID, TeamA: a2, TeamB: b2}); err != nil {
-			return "⚠️ Players were partially swapped (one court updated). Check status and adjust manually.", nil
+		if _, err := c.matches.UpdateRosters(ctx, []match.UpdateRosterInput{
+			{MatchID: l1.match.ID, TeamA: a1, TeamB: b1},
+			{MatchID: l2.match.ID, TeamA: a2, TeamB: b2},
+		}); err != nil {
+			return "⚠️ Could not swap players across courts: " + userMessage(err), nil
 		}
 		return fmt.Sprintf("✅ Swapped %s and %s across courts.", p1.DisplayName, p2.DisplayName), nil
 	}

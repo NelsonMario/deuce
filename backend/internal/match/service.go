@@ -595,151 +595,197 @@ type UpdateRosterInput struct {
 
 // UpdateRoster atomically swaps, substitutes, or rearranges players in a match that is CREATED or PLAYING.
 func (s *Service) UpdateRoster(ctx context.Context, in UpdateRosterInput) (Match, error) {
-	ids := []uuid.UUID{in.TeamA[0], in.TeamA[1], in.TeamB[0], in.TeamB[1]}
-	if err := requireDistinct(ids); err != nil {
+	results, err := s.UpdateRosters(ctx, []UpdateRosterInput{in})
+	if err != nil {
 		return Match{}, err
 	}
+	if len(results) == 0 {
+		return Match{}, apperr.Internal(fmt.Errorf("no roster update result"))
+	}
+	return results[0], nil
+}
 
-	var result Match
+// UpdateRosters atomically applies roster updates to one or more matches in the
+// same transaction. This supports cross-court swaps where a player removed from
+// one active match is added to another in the same batch.
+func (s *Service) UpdateRosters(ctx context.Context, inputs []UpdateRosterInput) ([]Match, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+
+	type planned struct {
+		in          UpdateRosterInput
+		match       db.Match
+		existingMap map[uuid.UUID]db.MatchPlayer
+		newMap      map[uuid.UUID]db.MatchTeam
+	}
+
+	results := make([]Match, len(inputs))
 	err := database.RunInTx(ctx, s.pool, func(q *db.Queries) error {
-		m, err := q.LockMatchByID(ctx, in.MatchID)
-		if err != nil {
-			return apperr.NotFound("match")
-		}
-		if m.Status == db.MatchStatusFINISHED {
-			return apperr.InvalidState("cannot modify roster of a finished match")
-		}
+		plans := make([]planned, 0, len(inputs))
+		seenMatches := map[uuid.UUID]bool{}
+		movedAcross := map[uuid.UUID]bool{}
 
-		existingPlayers, err := q.ListMatchPlayers(ctx, in.MatchID)
-		if err != nil {
-			return fmt.Errorf("list match players: %w", err)
-		}
-
-		existingMap := map[uuid.UUID]db.MatchPlayer{}
-		for _, p := range existingPlayers {
-			if p.PlayerID.Valid {
-				existingMap[uuid.UUID(p.PlayerID.Bytes)] = p
+		// Lock matches and compute per-match plans. Also track players removed
+		// in one match while being present in another update, allowing them to
+		// stay PLAYING across a cross-court swap.
+		for _, in := range inputs {
+			ids := []uuid.UUID{in.TeamA[0], in.TeamA[1], in.TeamB[0], in.TeamB[1]}
+			if err := requireDistinct(ids); err != nil {
+				return err
 			}
-		}
+			if seenMatches[in.MatchID] {
+				return apperr.Validation("duplicate match in roster update")
+			}
+			seenMatches[in.MatchID] = true
 
-		newMap := map[uuid.UUID]db.MatchTeam{
-			in.TeamA[0]: db.MatchTeamA,
-			in.TeamA[1]: db.MatchTeamA,
-			in.TeamB[0]: db.MatchTeamB,
-			in.TeamB[1]: db.MatchTeamB,
-		}
-
-		genders := map[uuid.UUID]matchmaking.Gender{}
-		for _, id := range ids {
-			p, err := q.GetPlayer(ctx, id)
+			m, err := q.LockMatchByID(ctx, in.MatchID)
 			if err != nil {
-				return fmt.Errorf("get player %s: %w", id, err)
+				return apperr.NotFound("match")
 			}
-			genders[id] = matchmaking.Gender(p.Gender)
-		}
-		if err := validateFormatGenders(Format(m.Format), [2]matchmaking.Gender{genders[in.TeamA[0]], genders[in.TeamA[1]]}, [2]matchmaking.Gender{genders[in.TeamB[0]], genders[in.TeamB[1]]}); err != nil {
-			return err
-		}
-
-		// Handle removed players
-		for pID := range existingMap {
-			if _, kept := newMap[pID]; !kept {
-				if err := q.DeleteMatchPlayer(ctx, db.DeleteMatchPlayerParams{
-					MatchID:  in.MatchID,
-					PlayerID: pID,
-				}); err != nil {
-					return fmt.Errorf("delete match player: %w", err)
-				}
-
-				sp, err := q.GetSessionPlayerBySessionAndPlayerForUpdate(ctx, db.GetSessionPlayerBySessionAndPlayerForUpdateParams{
-					SessionID: m.SessionID,
-					PlayerID:  pID,
-				})
-				if err != nil {
-					return fmt.Errorf("get session player: %w", err)
-				}
-
-				nextStatus := db.SessionPlayerStatusBREAK
-				if override, ok := in.RemovedPlayerStatuses[pID]; ok && string(override) != "" {
-					nextStatus = override
-				}
-				if _, err := q.SetSessionPlayerStatus(ctx, db.SetSessionPlayerStatusParams{
-					ID:     sp.ID,
-					Status: nextStatus,
-				}); err != nil {
-					return fmt.Errorf("update removed session player status: %w", err)
-				}
+			if m.Status == db.MatchStatusFINISHED {
+				return apperr.InvalidState("cannot modify roster of a finished match")
 			}
-		}
 
-		// Handle added and kept players
-		for _, pID := range ids {
-			team := newMap[pID]
-			existingMP, kept := existingMap[pID]
-
-			sp, err := q.GetSessionPlayerBySessionAndPlayerForUpdate(ctx, db.GetSessionPlayerBySessionAndPlayerForUpdateParams{
-				SessionID: m.SessionID,
-				PlayerID:  pID,
-			})
+			existingPlayers, err := q.ListMatchPlayers(ctx, in.MatchID)
 			if err != nil {
-				return apperr.PlayerNotEligible("player is not part of this session")
+				return fmt.Errorf("list match players: %w", err)
+			}
+			existingMap := map[uuid.UUID]db.MatchPlayer{}
+			for _, p := range existingPlayers {
+				if p.PlayerID.Valid {
+					existingMap[uuid.UUID(p.PlayerID.Bytes)] = p
+				}
+			}
+			newMap := map[uuid.UUID]db.MatchTeam{
+				in.TeamA[0]: db.MatchTeamA,
+				in.TeamA[1]: db.MatchTeamA,
+				in.TeamB[0]: db.MatchTeamB,
+				in.TeamB[1]: db.MatchTeamB,
+			}
+			for pID := range existingMap {
+				if _, kept := newMap[pID]; !kept {
+					movedAcross[pID] = true
+				}
 			}
 
-			if !kept {
-				if sp.Status == db.SessionPlayerStatusPLAYING {
-					return apperr.Conflict("player is already playing in another match")
-				}
-				if sp.Status == db.SessionPlayerStatusENDED {
-					return apperr.PlayerNotEligible("player has left the session")
-				}
+			plans = append(plans, planned{in: in, match: m, existingMap: existingMap, newMap: newMap})
+		}
 
-				r, err := q.GetPlayerRating(ctx, pID)
+		// Only allow PLAYING-status additions when the player is removed from
+		// another match in this same batch and added to another match in batch.
+		for pID := range movedAcross {
+			addedElsewhere := false
+			for _, p := range plans {
+				if _, was := p.existingMap[pID]; was {
+					continue
+				}
+				if _, now := p.newMap[pID]; now {
+					addedElsewhere = true
+					break
+				}
+			}
+			if !addedElsewhere {
+				delete(movedAcross, pID)
+			}
+		}
+
+		for i, p := range plans {
+			in := p.in
+			m := p.match
+			existingMap := p.existingMap
+			newMap := p.newMap
+			ids := []uuid.UUID{in.TeamA[0], in.TeamA[1], in.TeamB[0], in.TeamB[1]}
+
+			genders := map[uuid.UUID]matchmaking.Gender{}
+			for _, id := range ids {
+				pl, err := q.GetPlayer(ctx, id)
 				if err != nil {
-					return fmt.Errorf("get player rating: %w", err)
+					return fmt.Errorf("get player %s: %w", id, err)
 				}
+				genders[id] = matchmaking.Gender(pl.Gender)
+			}
+			if err := validateFormatGenders(Format(m.Format), [2]matchmaking.Gender{genders[in.TeamA[0]], genders[in.TeamA[1]]}, [2]matchmaking.Gender{genders[in.TeamB[0]], genders[in.TeamB[1]]}); err != nil {
+				return err
+			}
 
-				if _, err := q.AddMatchPlayer(ctx, db.AddMatchPlayerParams{
-					MatchID:      in.MatchID,
-					PlayerID:     pID,
-					Team:         team,
-					RatingBefore: pgtype.Float8{Float64: r.Rating, Valid: true},
-				}); err != nil {
-					return fmt.Errorf("add match player: %w", err)
+			for pID := range existingMap {
+				if _, kept := newMap[pID]; !kept {
+					if err := q.DeleteMatchPlayer(ctx, db.DeleteMatchPlayerParams{MatchID: in.MatchID, PlayerID: pID}); err != nil {
+						return fmt.Errorf("delete match player: %w", err)
+					}
+					sp, err := q.GetSessionPlayerBySessionAndPlayerForUpdate(ctx, db.GetSessionPlayerBySessionAndPlayerForUpdateParams{SessionID: m.SessionID, PlayerID: pID})
+					if err != nil {
+						return fmt.Errorf("get session player: %w", err)
+					}
+					nextStatus := db.SessionPlayerStatusBREAK
+					if override, ok := in.RemovedPlayerStatuses[pID]; ok && string(override) != "" {
+						nextStatus = override
+					}
+					// Cross-court swap: player moves to another match in this
+					// same transaction, so keep PLAYING.
+					if movedAcross[pID] {
+						nextStatus = db.SessionPlayerStatusPLAYING
+					}
+					if sp.Status != nextStatus {
+						if _, err := q.SetSessionPlayerStatus(ctx, db.SetSessionPlayerStatusParams{ID: sp.ID, Status: nextStatus}); err != nil {
+							return fmt.Errorf("update removed session player status: %w", err)
+						}
+					}
 				}
+			}
 
-				if _, err := q.SetSessionPlayerStatus(ctx, db.SetSessionPlayerStatusParams{
-					ID:     sp.ID,
-					Status: db.SessionPlayerStatusPLAYING,
-				}); err != nil {
-					return fmt.Errorf("set session player playing: %w", err)
+			for _, pID := range ids {
+				team := newMap[pID]
+				existingMP, kept := existingMap[pID]
+				sp, err := q.GetSessionPlayerBySessionAndPlayerForUpdate(ctx, db.GetSessionPlayerBySessionAndPlayerForUpdateParams{SessionID: m.SessionID, PlayerID: pID})
+				if err != nil {
+					return apperr.PlayerNotEligible("player is not part of this session")
 				}
-			} else {
-				if existingMP.Team != team {
-					if _, err := q.UpdateMatchPlayerTeam(ctx, db.UpdateMatchPlayerTeamParams{
-						MatchID:  in.MatchID,
-						PlayerID: pID,
-						Team:     team,
-					}); err != nil {
+				if !kept {
+					if sp.Status == db.SessionPlayerStatusPLAYING && !movedAcross[pID] {
+						return apperr.Conflict("player is already playing in another match")
+					}
+					if sp.Status == db.SessionPlayerStatusENDED {
+						return apperr.PlayerNotEligible("player has left the session")
+					}
+					r, err := q.GetPlayerRating(ctx, pID)
+					if err != nil {
+						return fmt.Errorf("get player rating: %w", err)
+					}
+					if _, err := q.AddMatchPlayer(ctx, db.AddMatchPlayerParams{MatchID: in.MatchID, PlayerID: pID, Team: team, RatingBefore: pgtype.Float8{Float64: r.Rating, Valid: true}}); err != nil {
+						return fmt.Errorf("add match player: %w", err)
+					}
+					if sp.Status != db.SessionPlayerStatusPLAYING {
+						if _, err := q.SetSessionPlayerStatus(ctx, db.SetSessionPlayerStatusParams{ID: sp.ID, Status: db.SessionPlayerStatusPLAYING}); err != nil {
+							return fmt.Errorf("set session player playing: %w", err)
+						}
+					}
+				} else if existingMP.Team != team {
+					if _, err := q.UpdateMatchPlayerTeam(ctx, db.UpdateMatchPlayerTeamParams{MatchID: in.MatchID, PlayerID: pID, Team: team}); err != nil {
 						return fmt.Errorf("update match player team: %w", err)
 					}
 				}
 			}
-		}
 
-		result = toMatch(m)
-		result.Players = ids
+			result := toMatch(m)
+			result.Players = ids
+			results[i] = result
+		}
 		return nil
 	})
 
 	if err != nil {
 		if appErr, ok := apperr.As(err); ok {
-			return Match{}, appErr
+			return nil, appErr
 		}
-		return Match{}, apperr.Internal(err)
+		return nil, apperr.Internal(err)
 	}
 
-	s.logger.Info("match_roster_updated", "match_id", in.MatchID)
-	return result, nil
+	for _, in := range inputs {
+		s.logger.Info("match_roster_updated", "match_id", in.MatchID)
+	}
+	return results, nil
 }
 
 // ============================================================
