@@ -15,7 +15,7 @@ npm run check
 npm run build
 ```
 
-Set `VITE_API_BASE_URL` (e.g. `http://localhost:8080`) to point the bot setup page at your backend; if unset, dev defaults to `http://localhost:8080`.
+Set `VITE_API_BASE_URL` to your backend origin (e.g. `http://localhost:8080`); a trailing `/api/v1` is also accepted. The bot setup page hides the backend URL by default; enable “Use custom API base URL” only when you need to override it. If unset, dev defaults to `http://localhost:8080` and production defaults to the current site origin.
 
 The site is a static build (`@sveltejs/adapter-static`, output in `build/`)
 deployed on Vercel (`vercel.json`).

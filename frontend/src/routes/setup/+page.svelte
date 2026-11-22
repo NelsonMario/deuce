@@ -5,11 +5,20 @@
 	type Status = "DISABLED" | "NOT_PAIRED" | "PAIRED" | "READY" | "WAITING" | "ERROR";
 	type Group = { jid: string; name: string };
 
-	const envApiBase = import.meta.env.VITE_API_BASE_URL?.trim() || "";
+	function normalizeApiBase(value: string) {
+		return value
+			.trim()
+			.replace(/\/+$/, "")
+			.replace(/\/api(?:\/v1)?$/i, "");
+	}
+
+	const envApiBase = normalizeApiBase(import.meta.env.VITE_API_BASE_URL ?? "");
 	const defaultApiBase =
 		envApiBase ||
-		(import.meta.env.DEV ? "http://localhost:8080" : typeof window !== "undefined" ? window.location.origin : "");
-	let apiBase = $state(defaultApiBase);
+		normalizeApiBase(import.meta.env.DEV ? "http://localhost:8080" : typeof window !== "undefined" ? window.location.origin : "");
+	let useCustomApi = $state(false);
+	let customApiBase = $state("");
+	const activeApiBase = $derived(useCustomApi ? normalizeApiBase(customApiBase) || defaultApiBase : defaultApiBase);
 	let token = $state("");
 	let showToken = $state(false);
 	let status = $state<Status | "IDLE">("IDLE");
@@ -27,7 +36,7 @@
 	let creating = $state(false);
 
 	const curlQr = $derived.by(() => {
-		const base = apiBase.replace(/\/$/, "") || "http://localhost:8080";
+		const base = useCustomApi ? normalizeApiBase(customApiBase) || "<BACKEND_URL>" : "<BACKEND_URL>";
 		return `CODE=$(curl -s -H "Authorization: Bearer $TOKEN" \\
   ${base}/api/v1/whatsapp/qr \\
   | python3 -c 'import json,sys; print(json.load(sys.stdin).get("qr",""))')
@@ -39,7 +48,7 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 	}
 
 	function baseUrl() {
-		return apiBase.replace(/\/$/, "");
+		return activeApiBase;
 	}
 
 	function stopPolling() {
@@ -200,6 +209,8 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 		qrCode = "";
 		qrDataUrl = "";
 		groups = [];
+		useCustomApi = false;
+		customApiBase = "";
 		message = "Token cleared from this page.";
 		error = "";
 		status = "IDLE";
@@ -222,10 +233,21 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 	<div class="grid">
 		<section class="card">
 			<h2>1. Create club / get token</h2>
-			<div class="field">
-				<label for="api-base">Backend API base URL</label>
-				<input id="api-base" class="input" bind:value={apiBase} placeholder="http://localhost:8080" autocomplete="off" disabled={!!envApiBase} />
-				<p class="hint">{envApiBase ? `Using VITE_API_BASE_URL: ${envApiBase}` : "Point to backend (e.g. http://localhost:8080), not frontend dev server. Backend must allow frontend origin in CORS_ORIGINS."}</p>
+			<div class="field checkbox-field">
+				<label class="checkbox-label" for="use-custom-api">
+					<input id="use-custom-api" type="checkbox" bind:checked={useCustomApi} />
+					<span>Use custom API base URL</span>
+				</label>
+				{#if useCustomApi}
+					<input
+						id="api-base"
+						class="input"
+						bind:value={customApiBase}
+						placeholder="https://api.example.com"
+						autocomplete="off"
+					/>
+					<p class="hint">Backend origin only; optional <code>/api/v1</code> suffix is accepted.</p>
+				{/if}
 			</div>
 			<div class="row2">
 				<div class="field">
@@ -336,6 +358,9 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 	.field { margin-bottom: 14px; }
 	.row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 	label { display:block; font-size:.85rem; color: var(--text-dim); font-weight:600; margin-bottom:6px; }
+	.checkbox-field { display:grid; gap:8px; }
+	.checkbox-label { display:flex; align-items:center; gap:8px; margin:0; font-size:.9rem; color: var(--text); }
+	.checkbox-label input { width:16px; height:16px; accent-color: var(--accent); }
 	.input, .select { width: 100%; }
 	.hint { color: var(--text-faint); font-size: .82rem; margin-top: 6px; line-height: 1.45; }
 	.token-row { display:flex; gap:8px; }
