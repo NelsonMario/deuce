@@ -372,34 +372,30 @@ func (h *Handlers) resolveSessionPlayerID(ctx context.Context, sessionID uuid.UU
 		return uuid.Nil, apperr.Validation("player identifier is required")
 	}
 
-	// 1. Try parsing as UUID (can be player_id or session_player_id)
+	// 1. If valid UUID, return directly
 	if id, err := uuid.Parse(val); err == nil {
-		players, err := h.Sessions.ListPlayers(ctx, sessionID)
-		if err == nil {
-			for _, sp := range players {
-				if sp.PlayerID != nil && *sp.PlayerID == id {
-					return id, nil
-				}
-				if sp.ID == id && sp.PlayerID != nil {
-					return *sp.PlayerID, nil
-				}
-			}
-		}
 		return id, nil
 	}
 
-	// 2. Try looking up by display name in session
-	players, err := h.Sessions.ListPlayers(ctx, sessionID)
+	// 2. Look up by display name in session via batch
+	sps, err := h.Sessions.ListPlayers(ctx, sessionID)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	for _, sp := range players {
-		if sp.PlayerID == nil {
-			continue
+	var playerIDs []uuid.UUID
+	for _, sp := range sps {
+		if sp.PlayerID != nil {
+			playerIDs = append(playerIDs, *sp.PlayerID)
 		}
-		p, err := h.Players.GetPlayer(ctx, *sp.PlayerID)
-		if err == nil && strings.EqualFold(p.DisplayName, val) {
-			return *sp.PlayerID, nil
+	}
+	if len(playerIDs) > 0 {
+		players, err := h.Players.GetPlayersBatch(ctx, playerIDs)
+		if err == nil {
+			for _, p := range players {
+				if strings.EqualFold(p.DisplayName, val) {
+					return p.ID, nil
+				}
+			}
 		}
 	}
 

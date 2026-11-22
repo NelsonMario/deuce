@@ -897,48 +897,53 @@ func (s *Service) SwapPlayers(ctx context.Context, in SwapPlayersInput) (SwapPla
 		if err != nil {
 			return fmt.Errorf("list matches: %w", err)
 		}
-		active := make([]db.Match, 0)
+		activeMatches := make(map[uuid.UUID]db.Match)
 		for _, m := range matches {
 			if m.Status == db.MatchStatusCREATED || m.Status == db.MatchStatusPLAYING {
-				active = append(active, m)
+				activeMatches[m.ID] = m
 			}
 		}
 
-		findLoc := func(pid uuid.UUID) (*loc, error) {
-			for i := range active {
-				m := active[i]
-				mps, err := q.ListMatchPlayers(ctx, m.ID)
-				if err != nil {
-					return nil, fmt.Errorf("list match players: %w", err)
-				}
-				var a, b []uuid.UUID
-				for _, mp := range mps {
-					if !mp.PlayerID.Valid {
-						continue
-					}
-					mpPID := uuid.UUID(mp.PlayerID.Bytes)
-					if mp.Team == db.MatchTeamA {
-						a = append(a, mpPID)
-					} else {
-						b = append(b, mpPID)
-					}
-				}
-				if len(a) == 2 && len(b) == 2 {
-					if a[0] == pid || a[1] == pid || b[0] == pid || b[1] == pid {
-						return &loc{match: m, teamA: [2]uuid.UUID{a[0], a[1]}, teamB: [2]uuid.UUID{b[0], b[1]}}, nil
-					}
-				}
-			}
-			return nil, nil
+		allMPs, err := q.ListMatchPlayersBySession(ctx, in.SessionID)
+		if err != nil {
+			return fmt.Errorf("list session match players: %w", err)
 		}
 
-		l1, err := findLoc(in.Player1ID)
-		if err != nil {
-			return err
+		locs := make(map[uuid.UUID]*loc)
+		for _, mp := range allMPs {
+			m, isActive := activeMatches[mp.MatchID]
+			if !isActive || !mp.PlayerID.Valid {
+				continue
+			}
+			pID := uuid.UUID(mp.PlayerID.Bytes)
+			l, exists := locs[m.ID]
+			if !exists {
+				l = &loc{match: m}
+				locs[m.ID] = l
+			}
+			if mp.Team == db.MatchTeamA {
+				if l.teamA[0] == uuid.Nil {
+					l.teamA[0] = pID
+				} else {
+					l.teamA[1] = pID
+				}
+			} else {
+				if l.teamB[0] == uuid.Nil {
+					l.teamB[0] = pID
+				} else {
+					l.teamB[1] = pID
+				}
+			}
 		}
-		l2, err := findLoc(in.Player2ID)
-		if err != nil {
-			return err
+
+		var l1, l2 *loc
+		for _, l := range locs {
+			if l.teamA[0] == in.Player1ID || l.teamA[1] == in.Player1ID || l.teamB[0] == in.Player1ID || l.teamB[1] == in.Player1ID {
+				l1 = l
+			}
+			if l.teamA[0] == in.Player2ID || l.teamA[1] == in.Player2ID || l.teamB[0] == in.Player2ID || l.teamB[1] == in.Player2ID {
+				l2 = l
+			}
 		}
 
 		// Look up names for user-friendly message
