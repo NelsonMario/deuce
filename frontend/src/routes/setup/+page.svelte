@@ -5,7 +5,11 @@
 	type Status = "DISABLED" | "NOT_PAIRED" | "PAIRED" | "READY" | "WAITING" | "ERROR";
 	type Group = { jid: string; name: string };
 
-	let apiBase = $state(typeof window !== "undefined" ? window.location.origin : "");
+	const envApiBase = import.meta.env.VITE_API_BASE_URL?.trim() || "";
+	const defaultApiBase =
+		envApiBase ||
+		(import.meta.env.DEV ? "http://localhost:8080" : typeof window !== "undefined" ? window.location.origin : "");
+	let apiBase = $state(defaultApiBase);
 	let token = $state("");
 	let showToken = $state(false);
 	let status = $state<Status | "IDLE">("IDLE");
@@ -220,8 +224,8 @@ npx -y qrcode@1.5.4 -o /tmp/whatsapp-qr.png "$CODE" && open /tmp/whatsapp-qr.png
 			<h2>1. Create club / get token</h2>
 			<div class="field">
 				<label for="api-base">Backend API base URL</label>
-				<input id="api-base" class="input" bind:value={apiBase} placeholder="http://localhost:8080" autocomplete="off" />
-				<p class="hint">Browser requests need this origin allowed by backend <code>CORS_ORIGINS</code>.</p>
+				<input id="api-base" class="input" bind:value={apiBase} placeholder="http://localhost:8080" autocomplete="off" disabled={!!envApiBase} />
+				<p class="hint">{envApiBase ? `Using VITE_API_BASE_URL: ${envApiBase}` : "Point to backend (e.g. http://localhost:8080), not frontend dev server. Backend must allow frontend origin in CORS_ORIGINS."}</p>
 			</div>
 			<div class="row2">
 				<div class="field">

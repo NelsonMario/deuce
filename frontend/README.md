@@ -8,11 +8,14 @@ WhatsApp, so the site has no login, dashboard or match-management UI.
 ## Development
 
 ```bash
+cp .env.example .env   # optional: set VITE_API_BASE_URL
 npm install
 npm run dev
 npm run check
 npm run build
 ```
+
+Set `VITE_API_BASE_URL` (e.g. `http://localhost:8080`) to point the bot setup page at your backend; if unset, dev defaults to `http://localhost:8080`.
 
 The site is a static build (`@sveltejs/adapter-static`, output in `build/`)
 deployed on Vercel (`vercel.json`).
