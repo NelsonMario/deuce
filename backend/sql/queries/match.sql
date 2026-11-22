@@ -42,6 +42,15 @@ JOIN matches m ON mp.match_id = m.id
 WHERE m.session_id = $1
 ORDER BY mp.match_id, mp.team ASC;
 
+-- name: CountActiveMatchesForPlayer :one
+SELECT count(*)
+FROM match_players mp
+JOIN matches m ON mp.match_id = m.id
+WHERE mp.player_id = $1
+  AND m.session_id = $2
+  AND m.status IN ('CREATED', 'PLAYING')
+  AND m.id != $3;
+
 
 -- name: SetMatchPlayerRatingAfter :one
 UPDATE match_players

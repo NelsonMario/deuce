@@ -23,6 +23,7 @@ type Querier interface {
 	// always assigns a real player. Keep the parameter typed as a plain,
 	// non-nullable uuid.
 	AddSessionPlayer(ctx context.Context, arg AddSessionPlayerParams) (SessionPlayer, error)
+	CountActiveMatchesForPlayer(ctx context.Context, arg CountActiveMatchesForPlayerParams) (int64, error)
 	// Read-only headcount used by the auto-fill background job to decide how
 	// many of a session's AVAILABLE courts it can fill this tick; the
 	// authoritative check happens inside GenerateAutomatic's own FOR UPDATE
@@ -38,6 +39,7 @@ type Querier interface {
 	CreatePlayerRating(ctx context.Context, arg CreatePlayerRatingParams) (PlayerRating, error)
 	CreatePlayerToken(ctx context.Context, arg CreatePlayerTokenParams) (PlayerToken, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
+	DeleteCourt(ctx context.Context, id uuid.UUID) error
 	DeleteMatch(ctx context.Context, id uuid.UUID) error
 	DeleteMatchPlayer(ctx context.Context, arg DeleteMatchPlayerParams) error
 	EndSession(ctx context.Context, id uuid.UUID) (Session, error)
@@ -100,6 +102,7 @@ type Querier interface {
 	StartMatch(ctx context.Context, id uuid.UUID) (Match, error)
 	StartSession(ctx context.Context, id uuid.UUID) (Session, error)
 	UpdateClubMemberRole(ctx context.Context, arg UpdateClubMemberRoleParams) (ClubMember, error)
+	UpdateCourtName(ctx context.Context, arg UpdateCourtNameParams) (Court, error)
 	UpdateMatchPlayerTeam(ctx context.Context, arg UpdateMatchPlayerTeamParams) (MatchPlayer, error)
 	UpdatePlayerProfile(ctx context.Context, arg UpdatePlayerProfileParams) (Player, error)
 	UpdatePlayerRating(ctx context.Context, arg UpdatePlayerRatingParams) (PlayerRating, error)

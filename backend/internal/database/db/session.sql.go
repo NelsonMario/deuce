@@ -123,6 +123,15 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 	return i, err
 }
 
+const deleteCourt = `-- name: DeleteCourt :exec
+DELETE FROM courts WHERE id = $1
+`
+
+func (q *Queries) DeleteCourt(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteCourt, id)
+	return err
+}
+
 const endSession = `-- name: EndSession :one
 UPDATE sessions
 SET status = 'FINISHED', ended_at = now(), updated_at = now()
@@ -699,6 +708,31 @@ func (q *Queries) StartSession(ctx context.Context, id uuid.UUID) (Session, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AutoFillEnabled,
+	)
+	return i, err
+}
+
+const updateCourtName = `-- name: UpdateCourtName :one
+UPDATE courts SET name = $2, updated_at = now()
+WHERE id = $1
+RETURNING id, session_id, name, status, created_at, updated_at
+`
+
+type UpdateCourtNameParams struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+}
+
+func (q *Queries) UpdateCourtName(ctx context.Context, arg UpdateCourtNameParams) (Court, error) {
+	row := q.db.QueryRow(ctx, updateCourtName, arg.ID, arg.Name)
+	var i Court
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.Name,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

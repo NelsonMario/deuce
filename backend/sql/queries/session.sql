@@ -136,6 +136,14 @@ UPDATE courts SET status = $2, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateCourtName :one
+UPDATE courts SET name = $2, updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: DeleteCourt :exec
+DELETE FROM courts WHERE id = $1;
+
 -- name: CountWaitingSessionPlayers :one
 -- Read-only headcount used by the auto-fill background job to decide how
 -- many of a session's AVAILABLE courts it can fill this tick; the

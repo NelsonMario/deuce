@@ -48,6 +48,29 @@ func (q *Queries) AddMatchPlayer(ctx context.Context, arg AddMatchPlayerParams) 
 	return i, err
 }
 
+const countActiveMatchesForPlayer = `-- name: CountActiveMatchesForPlayer :one
+SELECT count(*)
+FROM match_players mp
+JOIN matches m ON mp.match_id = m.id
+WHERE mp.player_id = $1
+  AND m.session_id = $2
+  AND m.status IN ('CREATED', 'PLAYING')
+  AND m.id != $3
+`
+
+type CountActiveMatchesForPlayerParams struct {
+	PlayerID  pgtype.UUID `json:"player_id"`
+	SessionID uuid.UUID   `json:"session_id"`
+	ID        uuid.UUID   `json:"id"`
+}
+
+func (q *Queries) CountActiveMatchesForPlayer(ctx context.Context, arg CountActiveMatchesForPlayerParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveMatchesForPlayer, arg.PlayerID, arg.SessionID, arg.ID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createMatch = `-- name: CreateMatch :one
 INSERT INTO matches (session_id, court_id, format)
 VALUES ($1, $2, $3)

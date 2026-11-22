@@ -14,7 +14,6 @@ import (
 
 	"deuce/backend/internal/apperr"
 	"deuce/backend/internal/club"
-	"deuce/backend/internal/database/db"
 	"deuce/backend/internal/gemini"
 	"deuce/backend/internal/match"
 	"deuce/backend/internal/player"
@@ -1066,126 +1065,20 @@ func (c *GroupCommands) setPlayers(ctx context.Context, sess session.Session, re
 	if sp1.Status == session.PlayerEnded || sp2.Status == session.PlayerEnded {
 		return "⚠️ Both players must be in the rotation (use `in` to bring someone back).", nil
 	}
-	matches, err := c.matches.ListBySession(ctx, sess.ID)
+
+	res, err := c.matches.SwapPlayers(ctx, match.SwapPlayersInput{
+		SessionID: sess.ID,
+		Player1ID: p1.ID,
+		Player2ID: p2.ID,
+	})
 	if err != nil {
-		return "", err
-	}
-	active := make([]match.Match, 0)
-	for _, m := range matches {
-		if m.Status == match.StatusCreated || m.Status == match.StatusPlaying {
-			active = append(active, m)
-		}
-	}
-	type loc struct {
-		match *match.Match
-		teamA [2]uuid.UUID
-		teamB [2]uuid.UUID
-	}
-	findLoc := func(pid uuid.UUID) (*loc, error) {
-		for i := range active {
-			m := &active[i]
-			mps, err := c.matches.ListPlayers(ctx, m.ID)
-			if err != nil {
-				return nil, err
-			}
-			var a, b []uuid.UUID
-			for _, mp := range mps {
-				if mp.PlayerID == nil {
-					continue
-				}
-				if mp.Team == match.TeamA {
-					a = append(a, *mp.PlayerID)
-				} else {
-					b = append(b, *mp.PlayerID)
-				}
-			}
-			if len(a) == 2 && len(b) == 2 {
-				if a[0] == pid || a[1] == pid || b[0] == pid || b[1] == pid {
-					return &loc{match: m, teamA: [2]uuid.UUID{a[0], a[1]}, teamB: [2]uuid.UUID{b[0], b[1]}}, nil
-				}
-			}
-		}
-		return nil, nil
-	}
-	l1, err := findLoc(p1.ID)
-	if err != nil {
-		return "", err
-	}
-	l2, err := findLoc(p2.ID)
-	if err != nil {
-		return "", err
+		return "⚠️ Could not swap players: " + userMessage(err), nil
 	}
 
-	replaceIn := func(l *loc, out, in uuid.UUID) ([2]uuid.UUID, [2]uuid.UUID) {
-		a, b := l.teamA, l.teamB
-		for i := 0; i < 2; i++ {
-			if a[i] == out {
-				a[i] = in
-			}
-			if b[i] == out {
-				b[i] = in
-			}
-		}
-		return a, b
+	if res.Action == match.SwapActionBothWaiting {
+		return "ℹ️ " + res.Message, nil
 	}
-
-	switch {
-	case l1 == nil && l2 == nil:
-		return "ℹ️ Both players are already waiting.", nil
-	case l1 != nil && l2 == nil:
-		a, b := replaceIn(l1, p1.ID, p2.ID)
-		_, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{
-			MatchID:               l1.match.ID,
-			TeamA:                 a,
-			TeamB:                 b,
-			RemovedPlayerStatuses: map[uuid.UUID]db.SessionPlayerStatus{p1.ID: db.SessionPlayerStatusWAITING},
-		})
-		if err != nil {
-			return "⚠️ Could not move player: " + userMessage(err), nil
-		}
-		return fmt.Sprintf("✅ %s is now playing instead of %s (back in queue).", p2.DisplayName, p1.DisplayName), nil
-	case l1 == nil && l2 != nil:
-		a, b := replaceIn(l2, p2.ID, p1.ID)
-		_, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{
-			MatchID:               l2.match.ID,
-			TeamA:                 a,
-			TeamB:                 b,
-			RemovedPlayerStatuses: map[uuid.UUID]db.SessionPlayerStatus{p2.ID: db.SessionPlayerStatusWAITING},
-		})
-		if err != nil {
-			return "⚠️ Could not move player: " + userMessage(err), nil
-		}
-		return fmt.Sprintf("✅ %s is now playing instead of %s (back in queue).", p1.DisplayName, p2.DisplayName), nil
-	case l1.match.ID == l2.match.ID:
-		// swap within same match (teams/positions)
-		a, b := l1.teamA, l1.teamB
-		swapID := func(x [2]uuid.UUID) [2]uuid.UUID {
-			for i := 0; i < 2; i++ {
-				if x[i] == p1.ID {
-					x[i] = p2.ID
-				} else if x[i] == p2.ID {
-					x[i] = p1.ID
-				}
-			}
-			return x
-		}
-		a, b = swapID(a), swapID(b)
-		_, err := c.matches.UpdateRoster(ctx, match.UpdateRosterInput{MatchID: l1.match.ID, TeamA: a, TeamB: b})
-		if err != nil {
-			return "⚠️ Could not swap players: " + userMessage(err), nil
-		}
-		return fmt.Sprintf("✅ Swapped %s and %s.", p1.DisplayName, p2.DisplayName), nil
-	default:
-		a1, b1 := replaceIn(l1, p1.ID, p2.ID)
-		a2, b2 := replaceIn(l2, p2.ID, p1.ID)
-		if _, err := c.matches.UpdateRosters(ctx, []match.UpdateRosterInput{
-			{MatchID: l1.match.ID, TeamA: a1, TeamB: b1},
-			{MatchID: l2.match.ID, TeamA: a2, TeamB: b2},
-		}); err != nil {
-			return "⚠️ Could not swap players across courts: " + userMessage(err), nil
-		}
-		return fmt.Sprintf("✅ Swapped %s and %s across courts.", p1.DisplayName, p2.DisplayName), nil
-	}
+	return "✅ " + res.Message, nil
 }
 
 

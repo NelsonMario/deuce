@@ -531,6 +531,20 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
   /sessions/{sessionId}/courts:
+    get:
+      tags: [courts]
+      security: [{ PlayerToken: [] }]
+      summary: List courts in a session (host only)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Court' }
     post:
       tags: [sessions]
       security: [{ PlayerToken: [] }]
@@ -552,6 +566,96 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Court' }
+
+  /sessions/{sessionId}/set:
+    post:
+      tags: [sessions, matches]
+      security: [{ PlayerToken: [] }]
+      summary: Swap or substitute two players (court <-> court, same court, court <-> waiting bench)
+      description: >
+        Atomically swaps or substitutes two players in the session:
+        - court <-> court: swaps Player 1 and Player 2 across courts
+        - same court: swaps positions / teams of Player 1 and Player 2 on the same court
+        - court <-> waiting bench: substitutes a court player with a bench player (or vice versa)
+        - bench <-> bench: returns both are waiting
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [player1, player2]
+              properties:
+                player1: { type: string, description: "Player UUID, session_player UUID, or display name" }
+                player2: { type: string, description: "Player UUID, session_player UUID, or display name" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action: { type: string, enum: [court_to_court, same_court, court_to_bench, both_waiting] }
+                  message: { type: string }
+                  matches:
+                    type: array
+                    items: { $ref: '#/components/schemas/Match' }
+
+  /courts/{courtId}:
+    get:
+      tags: [courts]
+      security: [{ PlayerToken: [] }]
+      summary: Get court details (host only)
+      parameters:
+        - name: courtId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Court' }
+    patch:
+      tags: [courts]
+      security: [{ PlayerToken: [] }]
+      summary: Update a court name (host only)
+      parameters:
+        - name: courtId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Court' }
+    delete:
+      tags: [courts]
+      security: [{ PlayerToken: [] }]
+      summary: Delete an available court (host only)
+      parameters:
+        - name: courtId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Deleted
 
   /sessions/{sessionId}/matches/generate:
     post:

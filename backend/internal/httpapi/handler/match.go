@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"context"
+	"fmt"
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
@@ -360,4 +364,187 @@ func (h *Handlers) CancelMatch(c *fiber.Ctx) error {
 		return HandleError(c, err)
 	}
 	return c.JSON(fiber.Map{"status": "cancelled", "match_id": matchID.String()})
+}
+
+func (h *Handlers) resolveSessionPlayerID(ctx context.Context, sessionID uuid.UUID, val string) (uuid.UUID, error) {
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return uuid.Nil, apperr.Validation("player identifier is required")
+	}
+
+	// 1. Try parsing as UUID (can be player_id or session_player_id)
+	if id, err := uuid.Parse(val); err == nil {
+		players, err := h.Sessions.ListPlayers(ctx, sessionID)
+		if err == nil {
+			for _, sp := range players {
+				if sp.PlayerID != nil && *sp.PlayerID == id {
+					return id, nil
+				}
+				if sp.ID == id && sp.PlayerID != nil {
+					return *sp.PlayerID, nil
+				}
+			}
+		}
+		return id, nil
+	}
+
+	// 2. Try looking up by display name in session
+	players, err := h.Sessions.ListPlayers(ctx, sessionID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	for _, sp := range players {
+		if sp.PlayerID == nil {
+			continue
+		}
+		p, err := h.Players.GetPlayer(ctx, *sp.PlayerID)
+		if err == nil && strings.EqualFold(p.DisplayName, val) {
+			return *sp.PlayerID, nil
+		}
+	}
+
+	return uuid.Nil, apperr.NotFound(fmt.Sprintf("player %q in this session", val))
+}
+
+type SetPlayersRequest struct {
+	SessionID string `json:"session_id,omitempty"`
+	Player1   string `json:"player1,omitempty"`
+	Player2   string `json:"player2,omitempty"`
+	PlayerID1 string `json:"player_id_1,omitempty"`
+	PlayerID2 string `json:"player_id_2,omitempty"`
+}
+
+type SetPlayersResponse struct {
+	Action  string     `json:"action"`
+	Message string     `json:"message"`
+	Matches []MatchDTO `json:"matches"`
+}
+
+// SetPlayers handles the set/swap player endpoint:
+// - court <-> court
+// - same court
+// - court <-> waiting bench
+// - bench <-> bench
+func (h *Handlers) SetPlayers(c *fiber.Ctx) error {
+	sessionID, err := ParseUUIDParam(c, "sessionId")
+	var req SetPlayersRequest
+	if err := BindAndValidate(c, &req); err != nil {
+		return HandleError(c, err)
+	}
+
+	if sessionID == uuid.Nil && req.SessionID != "" {
+		sessionID, err = uuid.Parse(req.SessionID)
+		if err != nil {
+			return HandleError(c, apperr.Validation("session_id must be a valid UUID"))
+		}
+	}
+	if sessionID == uuid.Nil {
+		return HandleError(c, apperr.Validation("sessionId parameter or session_id field is required"))
+	}
+
+	if err := h.requireHostOfSession(c, sessionID); err != nil {
+		return HandleError(c, err)
+	}
+
+	p1Val := req.Player1
+	if p1Val == "" {
+		p1Val = req.PlayerID1
+	}
+	p2Val := req.Player2
+	if p2Val == "" {
+		p2Val = req.PlayerID2
+	}
+	if p1Val == "" || p2Val == "" {
+		return HandleError(c, apperr.Validation("both player1 and player2 must be specified"))
+	}
+
+	p1ID, err := h.resolveSessionPlayerID(c.UserContext(), sessionID, p1Val)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	p2ID, err := h.resolveSessionPlayerID(c.UserContext(), sessionID, p2Val)
+	if err != nil {
+		return HandleError(c, err)
+	}
+
+	res, err := h.Matches.SwapPlayers(c.UserContext(), match.SwapPlayersInput{
+		SessionID: sessionID,
+		Player1ID: p1ID,
+		Player2ID: p2ID,
+	})
+	if err != nil {
+		return HandleError(c, err)
+	}
+
+	matchDTOs := make([]MatchDTO, 0, len(res.Matches))
+	for _, m := range res.Matches {
+		matchDTOs = append(matchDTOs, toMatchDTO(m))
+	}
+
+	return c.JSON(SetPlayersResponse{
+		Action:  string(res.Action),
+		Message: res.Message,
+		Matches: matchDTOs,
+	})
+}
+
+type BatchUpdateRosterItem struct {
+	MatchID               string            `json:"match_id" validate:"required,uuid"`
+	TeamA                 [2]string         `json:"team_a" validate:"required,len=2,dive,uuid"`
+	TeamB                 [2]string         `json:"team_b" validate:"required,len=2,dive,uuid"`
+	RemovedPlayerStatuses map[string]string `json:"removed_player_statuses,omitempty"`
+}
+
+type BatchUpdateRostersRequest struct {
+	Updates []BatchUpdateRosterItem `json:"updates" validate:"required,min=1"`
+}
+
+func (h *Handlers) BatchUpdateRosters(c *fiber.Ctx) error {
+	var req BatchUpdateRostersRequest
+	if err := BindAndValidate(c, &req); err != nil {
+		return HandleError(c, err)
+	}
+
+	inputs := make([]match.UpdateRosterInput, 0, len(req.Updates))
+	for _, item := range req.Updates {
+		mID := uuid.MustParse(item.MatchID)
+		if _, err := h.requireHostOfMatch(c, mID); err != nil {
+			return HandleError(c, err)
+		}
+		teamA := [2]uuid.UUID{uuid.MustParse(item.TeamA[0]), uuid.MustParse(item.TeamA[1])}
+		teamB := [2]uuid.UUID{uuid.MustParse(item.TeamB[0]), uuid.MustParse(item.TeamB[1])}
+
+		removedStatuses := map[uuid.UUID]db.SessionPlayerStatus{}
+		for pidStr, statusStr := range item.RemovedPlayerStatuses {
+			pid, err := uuid.Parse(pidStr)
+			if err != nil {
+				return HandleError(c, apperr.Validation("removed_player_statuses keys must be player UUIDs"))
+			}
+			status := db.SessionPlayerStatus(statusStr)
+			switch status {
+			case db.SessionPlayerStatusWAITING, db.SessionPlayerStatusBREAK, db.SessionPlayerStatusENDED:
+				removedStatuses[pid] = status
+			default:
+				return HandleError(c, apperr.Validation("removed_player_statuses values must be WAITING, BREAK, or ENDED"))
+			}
+		}
+
+		inputs = append(inputs, match.UpdateRosterInput{
+			MatchID:               mID,
+			TeamA:                 teamA,
+			TeamB:                 teamB,
+			RemovedPlayerStatuses: removedStatuses,
+		})
+	}
+
+	results, err := h.Matches.UpdateRosters(c.UserContext(), inputs)
+	if err != nil {
+		return HandleError(c, err)
+	}
+
+	dtos := make([]MatchDTO, 0, len(results))
+	for _, m := range results {
+		dtos = append(dtos, toMatchDTO(m))
+	}
+	return c.JSON(dtos)
 }

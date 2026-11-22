@@ -39,6 +39,8 @@ type Repository interface {
 	// by the auto-fill job to find courts it can generate a match for.
 	ListAvailableCourts(ctx context.Context, sessionID uuid.UUID) ([]Court, error)
 	GetCourt(ctx context.Context, id uuid.UUID) (Court, error)
+	UpdateCourt(ctx context.Context, id uuid.UUID, name string) (Court, error)
+	DeleteCourt(ctx context.Context, id uuid.UUID) error
 	// CountWaitingPlayers is a read-only headcount (no locking); it is only
 	// used to decide how many courts the auto-fill job should attempt this
 	// tick, not to guarantee correctness — that still comes from
@@ -236,6 +238,24 @@ func (r *pgRepository) GetCourt(ctx context.Context, id uuid.UUID) (Court, error
 		return Court{}, fmt.Errorf("get court: %w", err)
 	}
 	return toCourt(row), nil
+}
+
+func (r *pgRepository) UpdateCourt(ctx context.Context, id uuid.UUID, name string) (Court, error) {
+	row, err := r.q.UpdateCourtName(ctx, db.UpdateCourtNameParams{ID: id, Name: name})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Court{}, ErrNotFound
+		}
+		return Court{}, fmt.Errorf("update court: %w", err)
+	}
+	return toCourt(row), nil
+}
+
+func (r *pgRepository) DeleteCourt(ctx context.Context, id uuid.UUID) error {
+	if err := r.q.DeleteCourt(ctx, id); err != nil {
+		return fmt.Errorf("delete court: %w", err)
+	}
+	return nil
 }
 
 func (r *pgRepository) CountWaitingPlayers(ctx context.Context, sessionID uuid.UUID) (int64, error) {

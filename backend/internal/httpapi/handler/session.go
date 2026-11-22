@@ -243,6 +243,85 @@ type CreateCourtRequest struct {
 	Name string `json:"name" validate:"required,min=1,max=40"`
 }
 
+func (h *Handlers) requireHostOfCourt(c *fiber.Ctx, courtID uuid.UUID) (session.Court, error) {
+	court, err := h.Sessions.GetCourt(c.UserContext(), courtID)
+	if err != nil {
+		return session.Court{}, err
+	}
+	if err := h.requireHostOfSession(c, court.SessionID); err != nil {
+		return session.Court{}, err
+	}
+	return court, nil
+}
+
+func (h *Handlers) ListCourts(c *fiber.Ctx) error {
+	id, err := ParseUUIDParam(c, "sessionId")
+	if err != nil {
+		return HandleError(c, err)
+	}
+	if err := h.requireHostOfSession(c, id); err != nil {
+		return HandleError(c, err)
+	}
+	courts, err := h.Sessions.ListCourts(c.UserContext(), id)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	dtos := make([]CourtDTO, 0, len(courts))
+	for _, ct := range courts {
+		dtos = append(dtos, toCourtDTO(ct))
+	}
+	return c.JSON(dtos)
+}
+
+func (h *Handlers) GetCourt(c *fiber.Ctx) error {
+	courtID, err := ParseUUIDParam(c, "courtId")
+	if err != nil {
+		return HandleError(c, err)
+	}
+	court, err := h.requireHostOfCourt(c, courtID)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	return c.JSON(toCourtDTO(court))
+}
+
+type UpdateCourtRequest struct {
+	Name string `json:"name" validate:"required,min=1,max=40"`
+}
+
+func (h *Handlers) UpdateCourt(c *fiber.Ctx) error {
+	courtID, err := ParseUUIDParam(c, "courtId")
+	if err != nil {
+		return HandleError(c, err)
+	}
+	if _, err := h.requireHostOfCourt(c, courtID); err != nil {
+		return HandleError(c, err)
+	}
+	var req UpdateCourtRequest
+	if err := BindAndValidate(c, &req); err != nil {
+		return HandleError(c, err)
+	}
+	court, err := h.Sessions.UpdateCourt(c.UserContext(), courtID, req.Name)
+	if err != nil {
+		return HandleError(c, err)
+	}
+	return c.JSON(toCourtDTO(court))
+}
+
+func (h *Handlers) DeleteCourt(c *fiber.Ctx) error {
+	courtID, err := ParseUUIDParam(c, "courtId")
+	if err != nil {
+		return HandleError(c, err)
+	}
+	if _, err := h.requireHostOfCourt(c, courtID); err != nil {
+		return HandleError(c, err)
+	}
+	if err := h.Sessions.DeleteCourt(c.UserContext(), courtID); err != nil {
+		return HandleError(c, err)
+	}
+	return c.JSON(fiber.Map{"status": "deleted", "court_id": courtID.String()})
+}
+
 func (h *Handlers) CreateCourt(c *fiber.Ctx) error {
 	id, err := ParseUUIDParam(c, "sessionId")
 	if err != nil {

@@ -68,6 +68,7 @@ func NewApp(d Deps) *fiber.App {
 	sessions.Post("/:sessionId/end", requireAuth, d.Handlers.EndSession)
 	sessions.Patch("/:sessionId/assignment-mode", requireAuth, d.Handlers.SetAssignmentMode)
 	sessions.Patch("/:sessionId/auto-fill", requireAuth, d.Handlers.SetAutoFillEnabled)
+	sessions.Get("/:sessionId/courts", requireAuth, d.Handlers.ListCourts)
 	sessions.Post("/:sessionId/courts", requireAuth, d.Handlers.CreateCourt)
 	sessions.Post("/:sessionId/players", requireAuth, d.Handlers.AddPlayers)
 	sessions.Post("/:sessionId/matches/generate", requireAuth, d.Handlers.GenerateMatch)
@@ -75,6 +76,13 @@ func NewApp(d Deps) *fiber.App {
 	sessions.Post("/:sessionId/matches/manual/recommend", requireAuth, d.Handlers.RecommendManualMatch)
 	sessions.Post("/:sessionId/matches/manual/confirm", requireAuth, d.Handlers.ConfirmManualMatch)
 	sessions.Get("/:sessionId/matches", requireAuth, d.Handlers.ListSessionMatches)
+	sessions.Post("/:sessionId/set", requireAuth, d.Handlers.SetPlayers)
+	sessions.Post("/:sessionId/swap", requireAuth, d.Handlers.SetPlayers)
+
+	courts := v1.Group("/courts")
+	courts.Get("/:courtId", requireAuth, d.Handlers.GetCourt)
+	courts.Patch("/:courtId", requireAuth, d.Handlers.UpdateCourt)
+	courts.Delete("/:courtId", requireAuth, d.Handlers.DeleteCourt)
 
 	sessionPlayers := v1.Group("/session-players")
 	sessionPlayers.Patch("/:id/status", requireAuth, d.Handlers.SetSessionPlayerStatus)
@@ -85,6 +93,9 @@ func NewApp(d Deps) *fiber.App {
 	matches.Post("/:matchId/finish", requireAuth, d.Handlers.FinishMatch)
 	matches.Post("/:matchId/cancel", requireAuth, d.Handlers.CancelMatch)
 	matches.Put("/:matchId/roster", requireAuth, d.Handlers.UpdateMatchRoster)
+	matches.Put("/rosters", requireAuth, d.Handlers.BatchUpdateRosters)
+	matches.Post("/rosters", requireAuth, d.Handlers.BatchUpdateRosters)
+	matches.Post("/swap", requireAuth, d.Handlers.SetPlayers)
 
 	whatsapp := v1.Group("/whatsapp")
 	whatsapp.Get("/status", requireAuth, d.Handlers.WhatsApp.GetStatus)

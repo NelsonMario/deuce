@@ -160,7 +160,7 @@ func (s *Service) ListCourts(ctx context.Context, sessionID uuid.UUID) ([]Court,
 }
 
 func (s *Service) CreateCourt(ctx context.Context, sessionID uuid.UUID, name string) (Court, error) {
-	if name == "" {
+	if strings.TrimSpace(name) == "" {
 		return Court{}, apperr.Validation("court name is required")
 	}
 	c, err := s.repo.CreateCourt(ctx, sessionID, name)
@@ -168,6 +168,48 @@ func (s *Service) CreateCourt(ctx context.Context, sessionID uuid.UUID, name str
 		return Court{}, apperr.Internal(err)
 	}
 	return c, nil
+}
+
+func (s *Service) GetCourt(ctx context.Context, id uuid.UUID) (Court, error) {
+	c, err := s.repo.GetCourt(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return Court{}, apperr.NotFound("court")
+		}
+		return Court{}, apperr.Internal(err)
+	}
+	return c, nil
+}
+
+func (s *Service) UpdateCourt(ctx context.Context, id uuid.UUID, name string) (Court, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Court{}, apperr.Validation("court name is required")
+	}
+	c, err := s.repo.UpdateCourt(ctx, id, name)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return Court{}, apperr.NotFound("court")
+		}
+		return Court{}, apperr.Internal(err)
+	}
+	s.logger.Info("court_updated", "court_id", id, "name", name)
+	return c, nil
+}
+
+func (s *Service) DeleteCourt(ctx context.Context, id uuid.UUID) error {
+	court, err := s.GetCourt(ctx, id)
+	if err != nil {
+		return err
+	}
+	if court.Status == CourtPlaying {
+		return apperr.InvalidState("cannot delete a court while a match is playing")
+	}
+	if err := s.repo.DeleteCourt(ctx, id); err != nil {
+		return apperr.Internal(err)
+	}
+	s.logger.Info("court_deleted", "court_id", id)
+	return nil
 }
 
 func (s *Service) ListPlayers(ctx context.Context, sessionID uuid.UUID) ([]Player, error) {
