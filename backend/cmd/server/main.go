@@ -1,4 +1,4 @@
-// Command server runs the badminton club backend HTTP API.
+// Command server runs the Deuce badminton club backend HTTP API.
 package main
 
 import (
